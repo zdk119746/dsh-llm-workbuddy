@@ -1,0 +1,12 @@
+# dsh-llm-workbuddy bundle patch
+#
+# This file is the `dsh.bundle.patch` layer of the package: it mounts the
+# plugin row into the profile. Installing through the official CLI —
+#
+#   dsh plugin --profile web add dsh-llm-workbuddy
+#
+# — reconciles `dsh.profile.bundles` against installed packages and, seeing
+# this declaration, appends `dsh-llm-workbuddy` to the bundle stack.
+- insert:
+    - id: llm-workbuddy
+      name: 'dsh-llm-workbuddy'
