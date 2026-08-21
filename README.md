@@ -1,5 +1,8 @@
 # dsh-llm-workbuddy
 
+[![npm version](https://img.shields.io/npm/v/dsh-llm-workbuddy.svg)](https://www.npmjs.com/package/dsh-llm-workbuddy)
+[![license](https://img.shields.io/npm/l/dsh-llm-workbuddy.svg)](https://github.com/zdk119746/dsh-llm-workbuddy/blob/main/LICENSE)
+
 在 DeepSeek Harness 中使用你的 **WorkBuddy / CodeBuddy** 账号模型的 LLM 适配器插件。
 
 它把 `workbuddy` 这个 provider 路由指向本地运行的
