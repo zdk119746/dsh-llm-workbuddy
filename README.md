@@ -15,7 +15,8 @@
 
 1. **模型能力**：Web 界面的模型选择器（composer 模型菜单或 `/model` 命令）会多出
    一个 **WorkBuddy** 分组，模型（DeepSeek-V4、GLM-5.x、Kimi-K2.x、MiniMax-M3、
-   Hy3、Hunyuan…）随账号可用列表实时同步，点一下即可切换。
+   Hy3、Hunyuan…）随账号可用列表实时同步，点一下即可切换；支持推理的模型还会
+   显示**推理等级**选择器（低 / 中 / 高）。
 2. **Web 登录状态小组件**：在 Web GUI 右下角常驻一个状态胶囊，**实时显示登录/
    代理状态**，未登录时一键在新标签页打开 WorkBuddy 登录页，登录完成后自动变绿。
    无需再回到终端手动跑登录脚本。
@@ -272,13 +273,15 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
     # defaultContextWindow: 200000      # 未在目录中标明容量的模型使用
     # discovery: true                   # 实时拉取代理的 /v1/models（30s 缓存）
     # models: [...]                     # 静态目录（代理不可达时的兜底）
+    #   每个条目可带 reasoningEffort: 'low'|'medium'|'high'（默认推理等级）
     # loginScript: ''                   # 登录脚本绝对/相对路径；默认用包内 login_workbuddy.py
     # sessionFile: ~/.codebuddy-session.json  # 会话文件路径；默认同上
 ```
 
 模型列表默认取插件内置目录；代理可达时改为实时拉取 `/v1/models`（支持
 `{"models": [...]}` / `{"data": [...]}` 两种返回），未列出的模型 id 仍可原样
-传递。
+传递。每个模型的推理等级（`reasoningEffort`）默认来自内置目录，代理可达时优先
+沿用目录值（代理 `/v1/models` 当前只上报 `High`，不区分模型）。
 
 ---
 
@@ -300,7 +303,9 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 ## 限制
 
 - 当前为纯文本适配器：图片输入会以 `UNSUPPORTED_CONTENT` 拒绝（后续可加）。
-- 不公布 reasoning effort 选择器；模型按平台默认强度运行。
+- 推理等级（reasoning effort）：支持推理的模型（如 DeepSeek-V4、GLM、Kimi、MiniMax、
+  Hy3 等）会显示推理等级下拉（低 / 中 / 高），默认值取平台默认强度。`reasoning_effort`
+  会透传给代理；若某模型平台侧只接受平台默认、忽略该参数，则退化为平台默认强度，不影响出字。
 - 代理未运行时，模型请求会以 `TRANSPORT` 错误快速失败（连接被拒绝）；但状态
   小组件本身不依赖代理——代理挂了它仍能显示「代理未运行」并允许触发登录。
 - 登录态有效期由 WorkBuddy 云端决定；过期后胶囊变红，重新点「登录」即可，
