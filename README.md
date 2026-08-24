@@ -16,7 +16,7 @@
 1. **模型能力**：Web 界面的模型选择器（composer 模型菜单或 `/model` 命令）会多出
    一个 **WorkBuddy** 分组，模型（DeepSeek-V4、GLM-5.x、Kimi-K2.x、MiniMax-M3、
    Hy3、Hunyuan…）随账号可用列表实时同步，点一下即可切换；支持推理的模型还会
-   显示**推理等级**选择器（低 / 中 / 高）。
+   显示**推理等级**选择器（Low / Medium / High）。
 2. **Web 登录状态小组件**：在 Web GUI 右下角常驻一个状态胶囊，**实时显示登录/
    代理状态**，未登录时一键在新标签页打开 WorkBuddy 登录页，登录完成后自动变绿。
    无需再回到终端手动跑登录脚本。
@@ -304,7 +304,7 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 
 - 当前为纯文本适配器：图片输入会以 `UNSUPPORTED_CONTENT` 拒绝（后续可加）。
 - 推理等级（reasoning effort）：支持推理的模型（如 DeepSeek-V4、GLM、Kimi、MiniMax、
-  Hy3 等）会显示推理等级下拉（低 / 中 / 高），默认值取平台默认强度。`reasoning_effort`
+  Hy3 等）会显示推理等级下拉（Low / Medium / High），默认值取平台默认强度。`reasoning_effort`
   会透传给代理；若某模型平台侧只接受平台默认、忽略该参数，则退化为平台默认强度，不影响出字。
 - 代理未运行时，模型请求会以 `TRANSPORT` 错误快速失败（连接被拒绝）；但状态
   小组件本身不依赖代理——代理挂了它仍能显示「代理未运行」并允许触发登录。
