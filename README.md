@@ -280,8 +280,10 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 
 模型列表默认取插件内置目录；代理可达时改为实时拉取 `/v1/models`（支持
 `{"models": [...]}` / `{"data": [...]}` 两种返回），未列出的模型 id 仍可原样
-传递。每个模型的推理等级（`reasoningEffort`）默认来自内置目录，代理可达时优先
-沿用目录值（代理 `/v1/models` 当前只上报 `High`，不区分模型）。
+传递。**内置目录充当白名单**：代理返回的已下架/不可用模型（如 glm-4.6v、
+glm-5.0、minimax-m2.5 等，上游返回 `service info not found`）会被过滤，不显示
+在 UI 中。每个模型的推理等级（`reasoningEffort`）默认来自内置目录，代理可达时
+优先沿用目录值（代理 `/v1/models` 当前只上报 `High`，不区分模型）。
 
 ---
 
