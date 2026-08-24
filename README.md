@@ -302,7 +302,10 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 
 ## 限制
 
-- 当前为纯文本适配器：图片输入会以 `UNSUPPORTED_CONTENT` 拒绝（后续可加）。
+- 图片输入：声明支持图片的模型（`inputModalities: ["text", "image"]`，如 deepseek-v4-pro、
+  glm-5.2、kimi-k2.x、hy3 等）可附带图片，适配器会通过 DSH 的附件服务把图片编码为
+  `data:<mime>;base64,<bytes>` 以 OpenAI `image_url` 格式透传给代理。若附件服务不可用
+  （headless 等无附件场景），图片输入会以 `UNSUPPORTED_CONTENT` 稳定报错。
 - 推理等级（reasoning effort）：支持推理的模型（如 DeepSeek-V4、GLM、Kimi、MiniMax、
   Hy3 等）会显示推理等级下拉（Low / Medium / High），默认值取平台默认强度。`reasoning_effort`
   会透传给代理；若某模型平台侧只接受平台默认、忽略该参数，则退化为平台默认强度，不影响出字。
