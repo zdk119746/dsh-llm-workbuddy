@@ -44,7 +44,8 @@
     "lib",
     "login_workbuddy.py",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

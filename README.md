@@ -2,6 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/dsh-llm-workbuddy.svg)](https://www.npmjs.com/package/dsh-llm-workbuddy)
 [![license](https://img.shields.io/npm/l/dsh-llm-workbuddy.svg)](https://github.com/zdk119746/dsh-llm-workbuddy/blob/main/LICENSE)
+[![Changelog](https://img.shields.io/badge/changelog-CHANGELOG-blue)](./CHANGELOG.md)
 
 在 DeepSeek Harness 中使用你的 **WorkBuddy / CodeBuddy** 账号模型的 LLM 适配器插件。
 
@@ -336,3 +337,18 @@ glm-5.0、minimax-m2.5 等，上游返回 `service info not found`）会被过�
 > 第三方 workbuddy2api 代理**不在包内**，需单独安装（见「安装代理」章节）。
 > 仓库根目录的 `start-workbuddy.sh` / `login-workbuddy.sh` / `.workbuddy/` 是本地
 > 开发用的配套文件，不随 npm 包发布。
+
+## 更新日志 / Changelog
+
+每次发版的改动记录见 [CHANGELOG.md](./CHANGELOG.md)。
+
+### 发版流程（确保 GitHub 有更新说明）
+
+1. 改完代码后，在 `package.json` 里 `version` 自增（语义化版本）。
+2. 在 `CHANGELOG.md` 顶部补一段本次版本（`## [x.y.z] - 日期`）的 Added / Fixed / Changed。
+3. 提交并打 tag：`git commit -am "release: x.y.z"` 然后 `git tag vx.y.z`。
+4. `git push origin main --tags`，到 GitHub 用该 tag 创建 **Release**——
+   Release 的描述直接引用 CHANGELOG 对应段落，仓库页面就有了「改了啥」的说明。
+
+> 注意：本机 `dsh web` 通过符号链接直接加载本地目录，因此**本地改动能立刻重启生效**，
+> GitHub 上的版本只影响通过 `dsh plugin add dsh-llm-workbuddy` 安装的其他用户。
