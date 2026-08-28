@@ -199,7 +199,7 @@ Web 登录后终端脚本也读得到同一份会话。
 | `GET /api/workbuddy/status` | 读取会话文件（默认 `~/.codebuddy-session.json`，或配置的 `sessionFile`）的 `auth.expiresAt` 判断会话是否有效，并 `fetch` 代理 `/health` 判断 `proxyUp`；返回 JSON：`{ sessionFile, authenticated, expiresAt, account, proxyUp, tokenValid, loginScriptAvailable }`；非 GET 返回 405 |
 | `POST /api/workbuddy/login` | 若已有有效会话则直接返回 `alreadyLoggedIn`；否则用系统 `python3` `spawn` 包内 `login_workbuddy.py --session-file <sessionFile>`，从子进程 stdout 解析出 `authUrl` 立即返回 `{ authUrl, pending:true }`（设备流在后台继续，前端轮询 status 感知完成）；非 POST 返回 405 |
 | `POST /api/workbuddy/diagnose` | **一键诊断**：真实探测健康状态，返回 `{ ok, session, health, chat, loginScriptAvailable, restartCommand }`。与 `/status` 不同，它除了探 `/health`，还会**真实发一次最小模型请求**（`chat.chatWorking`），能戳穿"胶囊显示成功但模型全 500"的假象；`ok:false` 时附带 `restartCommand`（自动区分本地 monorepo 布局与标准安装）；非 POST 返回 405 |
-| `GET /api/workbuddy/usage` | **用量统计**：读取本地 token 用量台账（`$DSH_HOME/llm-workbuddy/usage.jsonl`），返回 `{ today, byModel, total }`（今日/按模型/累计的 input/output tokens 与请求次数）；非 GET 返回 405 |
+| `GET /api/workbuddy/usage` | **用量统计**：读取本地 token 用量台账（`$DSH_HOME/llm-workbuddy/usage.jsonl`），返回 `{ today, byModel, total }`（今日/按模型/累计的 input/output tokens、请求次数，以及**积分消耗 `credit`**）；非 GET 返回 405 |
 
 > 会话文件与登录脚本路径的解析顺序：
 > 1. 配置里显式指定的 `sessionFile` / `loginScript`；
@@ -216,8 +216,9 @@ Web 登录后终端脚本也读得到同一份会话。
   显示**真实健康状态**（登录、会话文件、代理进程、登录令牌、模型能否出字），
   发现问题时附带**可复制的重启命令**（一键复制到终端执行）。
 - 胶囊里有个 **📊 用量** 按钮：点它 `GET /api/workbuddy/usage`，弹出一个面板
-  显示**今日/累计 token 用量**与**按模型明细**（数据来自本地台账
-  `$DSH_HOME/llm-workbuddy/usage.jsonl`）。
+  显示**今日/累计 token 用量**、**积分消耗**（上游每次返回的 `credit` 累加）与
+  **按模型明细**（数据来自本地台账 `$DSH_HOME/llm-workbuddy/usage.jsonl`）。
+  注：代理不暴露余额/剩余积分接口，只能统计**已消耗**积分，无法显示账户剩余。
 - 状态映射：
   - `authenticated && proxyUp` → 🟢 绿，显示 `WorkBuddy · <昵称>`
   - 否则 → 🔴 红，显示「登录」按钮；`proxyUp` 为 false 时额外提示 `代理未运行`
