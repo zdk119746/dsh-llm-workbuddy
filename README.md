@@ -213,13 +213,17 @@ Web 登录后终端脚本也读得到同一份会话。
 - 启动时在 `document.body` 末尾挂一个 `position:fixed` 的胶囊（右下角）。
 - 每 **5 秒** `GET /api/workbuddy/status`；点「登录」后加快到每 **2 秒**轮询、
   最多 30 次，直到 `authenticated:true`。
-- 胶囊里有个 **🔍 诊断** 按钮：点它 `POST /api/workbuddy/diagnose`，弹出一个面板
+- 胶囊外面只显示一个 **⚙️ 设置** 按钮（带 title「WorkBuddy 设置」）。点击展开菜单，
+  内含四个带明确 title 的操作：**🔍 诊断 / 📊 用量 / 🎁 签到 / 🔄 刷新模型**；
+  点击页面空白或选中某项后菜单自动收起。
+- **🔍 诊断**：点它 `POST /api/workbuddy/diagnose`，弹出一个面板
   显示**真实健康状态**（登录、会话文件、代理进程、登录令牌、模型能否出字），
   发现问题时附带**可复制的重启命令**（一键复制到终端执行）。
-- 胶囊里有个 **📊 用量** 按钮：点它 `GET /api/workbuddy/usage`，弹出一个面板
+- **📊 用量**：点它 `GET /api/workbuddy/usage`，弹出一个面板
   显示**今日/累计 token 用量**、**积分消耗**（上游每次返回的 `credit` 累加）与
   **按模型明细**（数据来自本地台账 `$DSH_HOME/llm-workbuddy/usage.jsonl`）。
   注：代理不暴露余额/剩余积分接口，只能统计**已消耗**积分，无法显示账户剩余。
+- 诊断 / 用量浮层**右上角都有 ✕ 关闭按钮**，也可点击浮层外区域或按 Esc 关闭。
 - 状态映射：
   - `authenticated && proxyUp` → 🟢 绿，显示 `WorkBuddy · <昵称>`
   - 否则 → 🔴 红，显示「登录」按钮；`proxyUp` 为 false 时额外提示 `代理未运行`

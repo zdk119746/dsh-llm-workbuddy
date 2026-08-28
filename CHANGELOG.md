@@ -4,6 +4,19 @@
 每次发版请同步 `package.json` 的 `version` 并打一个 `git tag`（如 `v0.1.13`），
 在 GitHub 创建 Release 时本文件即为更新说明来源。
 
+## [0.1.14] - 2026-08-28
+
+### Changed
+- 状态胶囊精简：外面只保留一个 **⚙️ 设置** 按钮，点击展开菜单显示原来的
+  四个操作（🔍 诊断 / 📊 用量 / 🎁 签到 / 🔄 刷新模型），每个都带明确 title。
+- 浮层（诊断 / 用量）统一加 **右上角 ✕ 关闭按钮**，并支持**点击浮层外区域**与
+  **按 Esc** 关闭，不再只能"再点一次菜单项"才收起。
+- 菜单交互修复（与本次功能一并发布）：
+  - 点击设置按钮可正常展开/收起（解决 `render()` 重建 DOM 触发外部点击误关的问题，
+    给设置按钮加 `stopPropagation()`）。
+  - 点击菜单项后立即收起菜单（此前只改状态不重渲染，要等下次轮询才消失）。
+  - 点击页面空白处亦可收起。
+
 ## [0.1.13] - 2026-08-28
 
 ### Added
@@ -37,6 +50,7 @@
 ---
 
 <!-- 历史版本锚点（便于生成 Release 时对比区间） -->
+[0.1.14]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/zdk119746/dsh-llm-workbuddy/releases/tag/v0.1.11
