@@ -4,6 +4,26 @@
 每次发版请同步 `package.json` 的 `version` 并打一个 `git tag`（如 `v0.1.13`），
 在 GitHub 创建 Release 时本文件即为更新说明来源。
 
+## [0.1.16] - 2026-09-10
+
+### Fixed
+- **适配 DeepSeek Harness `0.1.5-rc.1`（此前 0.1.15 在该版本上完全无法加载）**。
+  0.1.5-rc.1 移动了两个导出符号，而具名导入一个已不存在的符号会触发 ESM
+  **加载期 `SyntaxError`**，整个插件在 `import` 阶段即崩溃（provider、状态胶囊、
+  用量面板全部消失），不是运行期告警。现改为经命名空间对象取值并带兜底：
+  - `@deepseek-ai/dsh-llm`：`CallId` 在 0.1.5-rc.1 改名为 `ToolCallId`。
+  - `@deepseek-ai/dsh-settings`：`settingsNamespace` 已移除（改由注册内部
+    `parseSettingsNamespace` 校验，规则同为 `/^[a-z][a-z0-9-]*$/`），
+    `installSettingsSection` 改为 settings 服务的 `installSection` 方法。
+  - `settings` 分区改走 `ctx.inject(["settings"], (c) => c.settings.installSection(...))`，
+    与官方 `dsh-llm-deepseek` / `dsh-llm-pi-ai` 在 0.1.5-rc.1 上的写法一致。
+
+### Changed
+- `peerDependencies` 放宽为 `^0.1.1-rc.2 || ^0.1.5-rc.1`（`dsh-llm` /
+  `dsh-settings` / `dsh-timeout`），`@deepseek-ai/cordis` 放宽为 `^4.0.1 || ^4.0.2`，
+  以显式声明对 0.1.5-rc.1 的支持。修复为运行时取值，**同一个包在
+  0.1.1-rc.2 与 0.1.5-rc.1 上均可加载**。
+
 ## [0.1.15] - 2026-09-10
 
 ### Fixed
@@ -79,6 +99,7 @@
 ---
 
 <!-- 历史版本锚点（便于生成 Release 时对比区间） -->
+[0.1.16]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.12...v0.1.13

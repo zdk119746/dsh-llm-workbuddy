@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-workbuddy",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "WorkBuddy (via the local workbuddy2api proxy) LLM provider adapter for DeepSeek Harness, with a Web login-status widget",
   "type": "module",
   "main": "lib/index.js",
@@ -48,10 +48,10 @@
     "CHANGELOG.md"
   ],
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-settings": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-timeout": "^0.1.1-rc.2",
+    "@deepseek-ai/cordis": "^4.0.1 || ^4.0.2",
+    "@deepseek-ai/dsh-llm": "^0.1.1-rc.2 || ^0.1.5-rc.1",
+    "@deepseek-ai/dsh-settings": "^0.1.1-rc.2 || ^0.1.5-rc.1",
+    "@deepseek-ai/dsh-timeout": "^0.1.1-rc.2 || ^0.1.5-rc.1",
     "@deepseek-ai/schemastery": "^3.18.1"
   }
 }
