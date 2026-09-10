@@ -4,6 +4,35 @@
 每次发版请同步 `package.json` 的 `version` 并打一个 `git tag`（如 `v0.1.13`），
 在 GitHub 创建 Release 时本文件即为更新说明来源。
 
+## [0.1.15] - 2026-09-10
+
+### Fixed
+- **刷新模型看不到新上架模型**：内置目录此前同时充当白名单，代理
+  `/v1/models` 里凡不在目录中的模型一律被丢弃，所以平台新上架的模型
+  （如 `deepseek-v4.1-flash`）刷新多少次都不会出现。现改为**黑名单**
+  `RETIRED_MODEL_IDS`：只隐藏实测不可用（上游 `service info not found`）的
+  旧模型 id，其余照单显示。顺带放出 7 个别名仍在服务、却被旧白名单误藏的模型
+  （`minimax-m2.7`、`glm-5.0-turbo`、`hy3-preview`、`deepseek-v3-1-lkeap`、
+  `deepseek-v3-0324-lkeap`、`deepseek-r1-0528-lkeap`、`hunyuan-2.0-instruct`）。
+- 内置目录新增 `deepseek-v4.1-flash`，并在代理不可达时作为兜底条目。
+- 🔍 诊断的「模型出字」误报修复：探针用 `hy3` + `max_tokens: 4` 发一次请求，
+  而推理模型会把这 4 个 token 全花在思考上、`content` 返回空串，于是
+  "代理正常"被误判成「代理返回了空响应」。现承认"有计费 completion token +
+  有 choice"即为正常。
+
+### Added
+- **模型名后显示积分消耗倍率**：读取代理 `/v1/models` 的 `credits` 字段
+  （`"x0.06 credits"`）并拼成 `Deepseek-V4-Flash ×0.06`；实时值优先，内置目录
+  `credits` 兜底。平台未声明倍率的模型只显示模型名——不会用 0 或猜测值冒充。
+- 内置目录补齐各模型 `credits`（取自 WorkBuddy 应用 `product.json`）。
+
+### Changed（代理侧，`.workbuddy-src` / workbuddy2api）
+- `/v1/models` 透出 `credits` 字段（`model_to_codex_format`），倍率不再由各客户端
+  各自维护。
+- 官方应用 `product.json` 与本地 `models_config.json` 合并时倍率单独回填：官方
+  条目为空则沿用本地倍率，避免官方合并把倍率抹平。
+- `models_config.json` 补充 `deepseek-v4.1-flash`（1M 上下文 / 50k 输出）。
+
 ## [0.1.14] - 2026-08-28
 
 ### Changed
@@ -50,6 +79,7 @@
 ---
 
 <!-- 历史版本锚点（便于生成 Release 时对比区间） -->
+[0.1.15]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.11...v0.1.12

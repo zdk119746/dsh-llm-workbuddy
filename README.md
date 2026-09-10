@@ -284,16 +284,29 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
     # discovery: true                   # 实时拉取代理的 /v1/models（30s 缓存）
     # models: [...]                     # 静态目录（代理不可达时的兜底）
     #   每个条目可带 reasoningEffort: 'low'|'medium'|'high'（默认推理等级）
+    #   以及 credits: 'x0.06 credits'（显示为模型名后的 ×0.06）
     # loginScript: ''                   # 登录脚本绝对/相对路径；默认用包内 login_workbuddy.py
     # sessionFile: ~/.codebuddy-session.json  # 会话文件路径；默认同上
 ```
 
 模型列表默认取插件内置目录；代理可达时改为实时拉取 `/v1/models`（支持
 `{"models": [...]}` / `{"data": [...]}` 两种返回），未列出的模型 id 仍可原样
-传递。**内置目录充当白名单**：代理返回的已下架/不可用模型（如 glm-4.6v、
-glm-5.0、minimax-m2.5 等，上游返回 `service info not found`）会被过滤，不显示
-在 UI 中。每个模型的推理等级（`reasoningEffort`）默认来自内置目录，代理可达时
-优先沿用目录值（代理 `/v1/models` 当前只上报 `High`，不区分模型）。
+传递。**内置目录不再是白名单**：平台新上架的模型刷新后即出现在选择器里，
+无需等插件发版；只有已下架/不可用的模型 id（`RETIRED_MODEL_IDS`，上游返回
+`service info not found`）会被隐藏。每个模型的推理等级（`reasoningEffort`）
+默认来自内置目录，代理可达时优先沿用目录值（代理 `/v1/models` 当前只上报
+`High`，不区分模型）。
+
+**积分倍率**：模型名后面会拼上平台声明的积分倍率，例如
+`Deepseek-V4-Flash ×0.06`。倍率来自代理 `/v1/models` 的 `credits` 字段
+（`"x0.06 credits"`，平台写在 WorkBuddy 应用 `product.json` /
+`models_config.json` 里），实时值优先、内置目录兜底；平台没声明的模型
+（如个别新模型尚未写入 `product.json`）只显示模型名，不会猜一个数字。
+
+**刷新模型**：⚙️ 设置 → 🔄 刷新模型 会清掉插件的 30s 发现缓存并重新拉取
+代理列表。注意代理自身的模型清单来自本机 WorkBuddy 应用的 `product.json`
+与 `models_config.json`——两者都没有的模型，刷新也不会出现，需先更新应用或
+把模型补进代理配置。
 
 ---
 
