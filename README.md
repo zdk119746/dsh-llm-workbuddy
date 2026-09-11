@@ -62,12 +62,22 @@
 1. **代理必须独立安装并运行**：本插件**不打包**第三方代理 workbuddy2api。
    请在你的机器上单独安装并启动它（见下方「安装代理」），它把 WorkBuddy/CodeBuddy
    的私有协议转成标准 OpenAI chat-completions 格式。
-2. 代理必须跑在 **workbuddy2api 主分支源码**上，不能用 PyPI 的 2.0.3：
-   旧版缺少 `X-Product-Code` / Genie-IDE 等请求头，登录会在最后一步 401。
+2. 代理版本需 **`workbuddy2api >= 2.0.4`**（推荐直接从 PyPI 装，
+   见下方「安装代理」）：
+   - **2.0.3 及更早不可用**：缺少 `X-Product-Code` / Genie-IDE 等请求头与
+     企业认证头（`_enterprise_headers` / `X-Domain`），登录会在最后一步 401；
+   - **2.0.4 已包含该修复**（"修复登录账户轮询与企业认证 headers 传递"），
+     登录成功；GitHub `main` 当前与 2.0.4 内容一致，两者皆可。
 3. 登录使用**插件内置的 `login_workbuddy.py`**（本包自带，依赖系统 `python3`，
    纯标准库，Python 3.7+ 即可），**不需要**代理自带的 `--login`（VSCode platform
    会 401）。
 4. 插件装入 profile 后需要**重启 `dsh web`** 才能加载新的 bundle（包括本小部件）。
+
+> **关于「🎁 签到」**：该功能依赖代理提供 `/v1/checkin-status` 与 `/v1/checkin`
+> 转发。截至 `workbuddy2api` 2.0.4，**代理并未实现这两个端点**（任何分支/PyPI
+> 版本都没有）。插件会自动探测：探测到 404 时隐藏签到入口、并且不再每天自动
+> 尝试，因此不会产生无效的失败记录。若将来代理补齐了这两个端点，签到入口会
+> 自动重新出现，无需升级插件。
 
 ---
 
@@ -102,24 +112,35 @@ CLI 会把依赖写进 profile 并把 `dsh-llm-workbuddy` 追加到 `dsh.profile
 
 ### 全新机器 / 标准安装（任何能跑 Python 的机器）
 
-别人或你自己在**新机器**上用 npm 版插件时，按以下 3 步装代理：
+别人或你自己在**新机器**上用 npm 版插件时，推荐直接用 PyPI 装（版本 `>= 2.0.4`）：
 
 ```sh
 # 1. 安装 uv（本机 Python 工具，若已装可跳过）
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. 拉取 workbuddy2api 主分支源码
-git clone https://github.com/hawklithm/workbuddy2api.git
-cd workbuddy2api
+# 2. 安装代理（PyPI，需 >= 2.0.4；2.0.3 及更早缺登录所需请求头）
+uv tool install -U workbuddy2api
 
 # 3. 启动代理（监听 127.0.0.1:8787；先完成下方「登录」后再真正调用模型）
-uv run python -u -m codebuddy_proxy --desensitize \
+workbuddy2api --desensitize \
   --session-file ~/.codebuddy-session.json \
   --log-file ~/.codebuddy-proxy.jsonl
 ```
 
-> 之后任何时候想重启代理，就在 `workbuddy2api` 目录里重跑上面第 3 条命令。
-> 若提示 `address already in use`，先停掉旧代理：
+<details>
+<summary>或者：从 GitHub 源码运行（等价，main 与 2.0.4 内容一致）</summary>
+
+```sh
+git clone https://github.com/hawklithm/workbuddy2api.git
+cd workbuddy2api
+uv run python -u -m codebuddy_proxy --desensitize \
+  --session-file ~/.codebuddy-session.json \
+  --log-file ~/.codebuddy-proxy.jsonl
+```
+</details>
+
+> 之后任何时候想重启代理，重跑上面第 3 条命令即可（用 `uv tool` 安装时直接跑
+> `workbuddy2api ...`）。若提示 `address already in use`，先停掉旧代理：
 > `lsof -tiTCP:8787 -sTCP:LISTEN | xargs kill`，再重跑。
 
 ### 本仓库本地开发（可选快捷方式）
@@ -161,11 +182,33 @@ curl http://127.0.0.1:8787/v1/models # 模型列表（含 glm-5.2 / deepseek-v4-
    解析它打印的设备流链接（`authUrl`）返回给前端；前端用 `window.open` 在**新标签页**
    打开该登录页。
 4. 在新标签页用 WorkBuddy / CodeBuddy 账号（腾讯账号）完成扫码/授权。
-5. 胶囊会自动从每 5 秒轮询加快到每 2 秒（最多 30 次），一旦检测到
-   `.workbuddy/session.json` 的 `auth.expiresAt` 未过期且含 `accessToken`，
-   就切回 🟢 绿态，显示账号昵称。
+5. 胶囊会自动从每 5 秒轮询加快到每 2 秒（最多 30 次），一旦会话的过期时间
+   （见下方「登录态判定」）显示仍有效且含 `accessToken`，就切回绿态，
+   显示账号昵称。
 
 整个过程**不需要离开浏览器、不需要回终端**。
+
+> **🔑 重新登录（强制重登）**：胶囊 **⚙️ → 🔑 重新登录** 会带 `?force=1` 调用
+> 登录接口，**忽略本地会话判定**直接重跑设备流。该入口**始终可用**：本地判定
+> 依赖从会话文件推导的过期时间，只是启发式（见下），token 被提前吊销时它仍会
+> 显示"有效"，此时普通「登录」只会拿到 `alreadyLoggedIn`。不做条件显示是为了
+> 避免"判定错误 → 无法恢复"的耦合；判定不可靠时 title 会提示"当前建议执行"。
+
+### 登录态判定（插件如何判断"是否已登录"）
+
+代理写入的 `~/.codebuddy-session.json` **没有 `expiresAt` 字段**，所以插件按以下
+优先级推导过期时间，而不是把"字段缺失"当作"永不过期"：
+
+| 优先级 | 来源 | 说明 |
+|---|---|---|
+| 1 | `auth.expiresAt` | 本插件自带 `login_workbuddy.py` 写入；秒/毫秒都会归一化 |
+| 2 | `refreshToken` 的 JWT `exp` | 代理会自动 refresh accessToken，因此 **refreshToken 的有效期才是会话真正的边界** |
+| 3 | `accessToken` 的 JWT `exp` | 解码 JWT payload（不校验签名，只读声明） |
+| 4 | `auth.expiresIn` + 会话文件 mtime | 兜底；只会低估有效期，不会高估 |
+
+若以上都无法得出结果，接口会返回 `expiryKnown: false` 并给出
+`reloginRecommended: true`（而不是假装有效）；`expiresAtSource` 会说明用的是
+哪一来源，🔍 诊断面板里也会显示。
 
 ### 方式 B（传统）：在终端手动跑
 
@@ -197,10 +240,13 @@ Web 登录后终端脚本也读得到同一份会话。
 
 | 方法 + 路径 | 行为 |
 |---|---|
-| `GET /api/workbuddy/status` | 读取会话文件（默认 `~/.codebuddy-session.json`，或配置的 `sessionFile`）的 `auth.expiresAt` 判断会话是否有效，并 `fetch` 代理 `/health` 判断 `proxyUp`；返回 JSON：`{ sessionFile, authenticated, expiresAt, account, proxyUp, tokenValid, loginScriptAvailable }`；非 GET 返回 405 |
-| `POST /api/workbuddy/login` | 若已有有效会话则直接返回 `alreadyLoggedIn`；否则用系统 `python3` `spawn` 包内 `login_workbuddy.py --session-file <sessionFile>`，从子进程 stdout 解析出 `authUrl` 立即返回 `{ authUrl, pending:true }`（设备流在后台继续，前端轮询 status 感知完成）；非 POST 返回 405 |
-| `POST /api/workbuddy/diagnose` | **一键诊断**：真实探测健康状态，返回 `{ ok, session, health, chat, loginScriptAvailable, restartCommand }`。与 `/status` 不同，它除了探 `/health`，还会**真实发一次最小模型请求**（`chat.chatWorking`），能戳穿"胶囊显示成功但模型全 500"的假象；`ok:false` 时附带 `restartCommand`（自动区分本地 monorepo 布局与标准安装）；非 POST 返回 405 |
+| `GET /api/workbuddy/status` | 读取会话文件（默认 `~/.codebuddy-session.json`，或配置的 `sessionFile`），**多源推导**会话过期时间（`expiresAt` → refreshToken/accessToken 的 JWT `exp` → `expiresIn`+mtime）判断会话是否有效，并 `fetch` 代理 `/health` 判断 `proxyUp`；返回 `{ sessionFile, authenticated, expiresAt, expiresAtSource, expiryKnown, expired, tokenPresent, reloginRecommended, account, proxyUp, tokenValid, loginScriptAvailable, checkin: { supported, autoEnabled, handledToday, lastResult } }`；非 GET 返回 405 |
+| `POST /api/workbuddy/login` | 已有有效会话且未指定 `?force=1` 时直接返回 `alreadyLoggedIn`；否则用系统 `python3` `spawn` 包内 `login_workbuddy.py --session-file <sessionFile>`，等它打印出设备流链接后返回 `{ authUrl, pending:true }`（最长等 15 秒，超时/脚本早退返回 `{ error }`）；设备流在后台继续，前端轮询 status 感知完成。`?force=1` 强制重跑登录（见「🔑 重新登录」）；非 POST 返回 405 |
+| `POST /api/workbuddy/diagnose` | **一键诊断**：真实探测健康状态，返回 `{ ok, session, health, chat, loginScriptAvailable, restartCommand }`。与 `/status` 不同，它除了探 `/health`，还会**真实发一次最小模型请求**（`chat.chatWorking`），能戳穿"胶囊显示成功但模型全 500"的假象；`session` 里带 `expiresAtSource` / `expiryKnown` / `reloginRecommended`；`ok:false` 时附带 `restartCommand`（自动区分本地 monorepo 布局与标准安装）；非 POST 返回 405 |
 | `GET /api/workbuddy/usage` | **用量统计**：读取本地 token 用量台账（`$DSH_HOME/llm-workbuddy/usage.jsonl`），返回 `{ today, byModel, total }`（今日/按模型/累计的 input/output tokens、请求次数，以及**积分消耗 `credit`**）；非 GET 返回 405 |
+| `GET /api/workbuddy/checkin` | **签到状态**：返回 `{ supported, handledToday, lastResult, official }`；`supported` 为三态——`true`（代理有签到接口）/ `false`（探测到 404/405，代理未实现）/ `null`（尚未探测出结论）。探测结果缓存 30 分钟；非 GET/POST 返回 405 |
+| `POST /api/workbuddy/checkin` | **立即签到**：透传代理 `/v1/checkin`（幂等，官方对已签到返回业务拒绝）。代理未实现签到接口时返回 `{ ok:false, supported:false, message }` 且**不写入任何失败记录** |
+| `POST /api/workbuddy/refresh-models` | 清空模型发现缓存并重读代理 `/v1/models`，同时发布 `llm/adapters-updated` 让模型选择器立即重载；返回 `{ ok, announced, count, models }` |
 
 > 会话文件与登录脚本路径的解析顺序：
 > 1. 配置里显式指定的 `sessionFile` / `loginScript`；
@@ -214,8 +260,13 @@ Web 登录后终端脚本也读得到同一份会话。
 - 每 **5 秒** `GET /api/workbuddy/status`；点「登录」后加快到每 **2 秒**轮询、
   最多 30 次，直到 `authenticated:true`。
 - 胶囊外面只显示一个 **⚙️ 设置** 按钮（带 title「WorkBuddy 设置」）。点击展开菜单，
-  内含四个带明确 title 的操作：**🔍 诊断 / 📊 用量 / 🎁 签到 / 🔄 刷新模型**；
+  内含 **🔍 诊断 / 📊 用量 / 🎁 签到（按条件）/ 🔄 刷新模型 / 🔑 重新登录**；
   点击页面空白或选中某项后菜单自动收起。
+- **🎁 签到**：**仅当代理真的实现了签到接口时才出现**（`checkin.supported === true`）。
+  `workbuddy2api` 至今没有 `/v1/checkin-status` / `/v1/checkin`，此时入口不显示，
+  也不会每天自动尝试——避免"点了必然 404"和长期挂着的失败记录。
+- **🔑 重新登录**：**始终显示**，点击后带 `?force=1` 强制重跑设备流，忽略本地
+  会话判定（详见「登录态判定」）。
 - **🔍 诊断**：点它 `POST /api/workbuddy/diagnose`，弹出一个面板
   显示**真实健康状态**（登录、会话文件、代理进程、登录令牌、模型能否出字），
   发现问题时附带**可复制的重启命令**（一键复制到终端执行）。
@@ -318,8 +369,13 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 | 胶囊一直 `…`（加载中） | `GET /api/workbuddy/status` 失败 → 确认 `dsh web` 在跑、端口正确 |
 | 胶囊红 + `代理未运行` | workbuddy2api 代理没起或挂了 → 按「安装代理」章节启动 |
 | 胶囊显示登录成功但模型用不了 | 典型的"代理进程活着但指向旧路径/文件缺失"假象（`/health` 仍显示 ok）。点胶囊 **🔍 诊断**，看 `模型出字` 是否失败；按面板给出的重启命令重启代理 |
-| 点「登录」没反应 / 按钮灰 | `loginScriptAvailable:false` → 包内 `login_workbuddy.py` 缺失或系统无 `python3`；检查安装 |
-| 新标签页打开后登录完成，胶囊仍是红 | 会话文件（默认 `~/.codebuddy-session.json`）未刷新或 `expiresAt` 已过期 → 刷新页面或重跑登录 |
+| 点「登录」没反应 / 按钮灰 | `loginScriptAvailable:false` → 包内 `login_workbuddy.py` 缺失或系统无 `python3`；检查安装。若返回了 `error`（脚本 15 秒内没打印授权链接、或退出码非 0），页面会弹出具体原因 |
+| 点「登录」弹出 `alreadyLoggedIn`，但 token 实际已失效 | 本地判定是启发式（会话文件可能没有 `expiresAt`）→ 用 **⚙️ → 🔑 重新登录** 强制重跑登录 |
+| 胶囊绿但所有模型 401 | accessToken/refreshToken 都已过期但判定未察觉 → **⚙️ → 🔑 重新登录**；或先 **🔍 诊断** 看「令牌过期」一行 |
+| 设置菜单里没有「🎁 签到」 | **正常现象**：该代理未实现 `/v1/checkin-status` / `/v1/checkin`（`workbuddy2api` 至今未提供），插件探测到 404 后自动隐藏入口并停止每日自动尝试 |
+| 设置菜单里的「🔑 重新登录」 | 该入口**始终可用**；判定结果不可靠时 title 会提示"当前建议执行" |
+| 新标签页打开后登录完成，胶囊仍是红 | 会话文件（默认 `~/.codebuddy-session.json`）未刷新或已过期 → 刷新页面或点「🔑 重新登录」 |
+| 代理版本报错 / 登录最后一步 401 | 代理过旧（< 2.0.4，缺 `X-Product-Code`、`_enterprise_headers` 等）→ `uv tool install -U workbuddy2api` 升级到 >= 2.0.4 |
 | 启动 `dsh web` 报 `EPERM ... cordis.yml` | `.dsh` 所在系统卷受保护（`/System/Volumes/Data` 带 `protect`）。解决：`sudo chown -R $(whoami) /Users/jiyunyang/.dsh`，或 `export DSH_HOME=$HOME/dsh-home` 后重新 `dsh plugin --profile web add` 并把插件链接进新 home |
 | 模型请求 `TRANSPORT` 错误 | 代理未运行或端口不对（连接被拒绝） |
 
@@ -336,8 +392,13 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
   会透传给代理；若某模型平台侧只接受平台默认、忽略该参数，则退化为平台默认强度，不影响出字。
 - 代理未运行时，模型请求会以 `TRANSPORT` 错误快速失败（连接被拒绝）；但状态
   小组件本身不依赖代理——代理挂了它仍能显示「代理未运行」并允许触发登录。
-- 登录态有效期由 WorkBuddy 云端决定；过期后胶囊变红，重新点「登录」即可，
-  代理无需重启。
+- 登录态有效期由 WorkBuddy 云端决定。插件会尽力从会话文件推导过期时间
+  （见「登录态判定」），但**推导不出时只能标记为"未知"而不是失败**；真正的
+  失效检测以一次真实模型请求（🔍 诊断的「模型出字」）为准，恢复手段是
+  **🔑 重新登录**，代理无需重启。
+- **签到功能依赖代理实现 `/v1/checkin-status` 与 `/v1/checkin`**；截至
+  `workbuddy2api` 2.0.4（含 GitHub `main`、`dsh`、`codex` 各分支）均未提供，
+  因此默认不显示签到入口。代理侧补齐后无需升级插件，入口会自动出现。
 
 ---
 

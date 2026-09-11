@@ -4,6 +4,56 @@
 每次发版请同步 `package.json` 的 `version` 并打一个 `git tag`（如 `v0.1.13`），
 在 GitHub 创建 Release 时本文件即为更新说明来源。
 
+## [0.1.17] - 2026-09-11
+
+修复社区反馈的两个 issue（[#3](https://github.com/zdk119746/dsh-llm-workbuddy/issues/3)、
+[#4](https://github.com/zdk119746/dsh-llm-workbuddy/issues/4)）。
+
+### Fixed
+- **登录态永远判定为有效，且「登录」按钮无法恢复（issue #3）**。
+  代理（workbuddy2api）写入的 `~/.codebuddy-session.json` 里**没有
+  `auth.expiresAt`**，而插件把"字段缺失"当作"未过期"，于是：
+  `authenticated` 恒为 `true`、`POST /api/workbuddy/login` 恒返回
+  `alreadyLoggedIn`、诊断面板的「登录状态/登录令牌」恒显示"有效"；一旦 token
+  真失效，用户点登录没有任何反应，只能回终端手跑脚本。
+  现改为**多源推导过期时间**（按优先级）：
+  1. `auth.expiresAt`（本插件脚本写入；秒/毫秒自动归一化）；
+  2. `refreshToken` 的 JWT `exp`——代理会自动 refresh，所以 refreshToken 的
+     有效期才是会话真正的边界；
+  3. `accessToken` 的 JWT `exp`（解码 payload，不校验签名）；
+  4. `auth.expiresIn` + 会话文件 mtime（兜底，只会低估、不会高估）。
+  全部失败时返回 `expiryKnown: false` + `reloginRecommended: true`，
+  **不再假装有效**。`/status` 与诊断面板都会带上 `expiresAtSource` 说明来源。
+- **`authUrl` 永远为 `null`，点「登录」在新标签页打不开任何页面（issue #3 相关）**。
+  登录路由 `spawn` 后**立刻** `res.end()`，而设备流链接是子进程稍后才打印到
+  stdout 的，因此返回的 `authUrl` 恒为 `null`，Web 登录实际上从来没成功打开过
+  授权页。现改为等待链接出现（或脚本早退/15 秒超时）再应答，失败时返回结构化
+  `error`，前端弹窗提示而不是静默无反应。子进程 stdout 在应答后继续被 drain，
+  避免缓冲写满阻塞。
+- **「🎁 签到」必然 404，且每天写入一条失败记录（issue #4）**。
+  插件请求代理的 `/checkin-status` 与 `/checkin`，但 workbuddy2api **从未实现**
+  这两个端点（已核对 PyPI 2.0.0–2.0.4 与 `main` / `dsh` / `codex` 全部分支），
+  且 `autoCheckin` 默认 `true`，于是每天 10 点后必然失败一次并把失败结果持久化。
+  现改为**探测 + 优雅降级**：`/checkin-status` 返回 404/405 时判定该代理
+  **不支持签到**，隐藏签到入口、自动签到直接跳过（**不写任何状态**）。探测结果
+  缓存 30 分钟，`/status` 通过 `checkin.supported` 三态（`true`/`false`/`null`）
+  暴露给胶囊。代理补齐端点后入口会自动出现，无需升级插件。
+
+### Added
+- **🔑 重新登录（强制重登）**：`POST /api/workbuddy/login?force=1` 忽略本地会话
+  判定直接重跑设备流；胶囊**始终**提供该入口（不做条件显示），「判定错误 →
+  无法恢复」的耦合从此断开。
+
+### Changed
+- 诊断面板新增「令牌过期」（含来源）与重新登录提示；`login` 失败会弹窗说明原因。
+- **README 代理安装指引更正**：原先要求"必须用 GitHub 主分支源码、不能用 PyPI
+  2.0.3"，实测 PyPI **2.0.4**（2026-09-10 发布）已包含该登录修复（
+  `X-Product-Code` / `_enterprise_headers` / `X-Domain` 均在包内），且 GitHub
+  `main` 与 2.0.4 **内容完全一致**；而 2.0.3 确实缺少该修复。现改为推荐
+  `uv tool install -U workbuddy2api`（`>= 2.0.4`），源码方式作为等价备选。
+- 诊断面板的「重启命令」同步改为 `uv tool install` 方式。
+- README 补充「登录态判定」章节与签到依赖说明。
+
 ## [0.1.16] - 2026-09-10
 
 ### Fixed
