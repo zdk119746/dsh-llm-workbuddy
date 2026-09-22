@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-workbuddy",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "WorkBuddy (via the local workbuddy2api proxy) LLM provider adapter for DeepSeek Harness, with a Web login-status widget",
   "type": "module",
   "main": "lib/index.js",

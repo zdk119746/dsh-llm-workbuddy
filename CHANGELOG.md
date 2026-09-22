@@ -4,6 +4,77 @@
 每次发版请同步 `package.json` 的 `version` 并打一个 `git tag`（如 `v0.1.13`），
 在 GitHub 创建 Release 时本文件即为更新说明来源。
 
+## [0.1.18] - 2026-09-22
+
+修复「任务跑着跑着就死、显示得像断联、之后再怎么重试也起不来」这一类问题。
+根因是三条，都只在 WorkBuddy 这条链路上（原生 DeepSeek 不受影响）。
+
+> **改动范围**：`[插件]` 的随本包发布，装了就生效；`[本地代理]` 的在本机
+> `.workbuddy-src`（`start-workbuddy.sh` 用的那份源码）里，使用 PyPI 版
+> `workbuddy2api` 的用户不受影响。不过 `[插件]` 的错误帧解析对任何代理都有效，
+> 所以"一次 429 就让整场任务死掉"这个问题对所有用户都修好了。
+
+### Fixed
+- **[插件] 上游的 HTTP 错误被吞掉，任务当场死亡且不可重试（主因）**。
+  代理在**流式**请求里先发 200 响应头、之后才知道上游状态，于是上游的
+  `429 / 400 / 5xx` 只能作为 `data: {"error": …}` 事件写进 SSE，而且**写完直接
+  return，不补 `[DONE]`**。适配器只看到"流结束了却没有 [DONE]"，抛出
+  `STREAM_CLOSED`；而 `STREAM_CLOSED` 不在 harness 的重试策略里
+  （`EMPTY_RESPONSE / RATE_LIMIT / SERVER / TIMEOUT / TRANSPORT`）—— 一次限流
+  就让整个任务终结，且同样的请求下次还是被拒，用户看到的就是"卡死、无法继续"。
+  实测证据：09-16 上游 4 次 `429 code 6004 您的使用量已超出频率限制（含重置时间）`
+  ↔ 会话记录里 5 次 `STREAM_CLOSED`；09-04 上游 6 次 `400 code 11133`。
+  现在：
+  1. 适配器把 `error` 帧翻成真正的 `LlmError`：配额类（`6004` / "使用量已超出"
+     / `quota`）→ `QUOTA`，429 → `RATE_LIMIT`，400 → `INVALID_REQUEST` /
+     `CONTEXT_WINDOW_EXCEEDED`，5xx → `SERVER`，并把上游原文（含"将在 … 重置"）
+     带进错误信息；
+  2. 代理在**所有**结束路径（含错误、超时、内部异常）都补 `data: [DONE]`，
+     并给错误帧带上 `code` / `type` / 可读原因；
+  3. "一个字节都没收到就断开"映射为可重试的 `EMPTY_RESPONSE`，已经有内容再断开
+     仍保持 `STREAM_CLOSED`（截断的回答不能当完整回答用）。
+- **[本地代理] 60 个工具被静默砍到 30 个（上下文自相矛盾）**。DSH 一次发 60 个工具，代理
+  硬编码 `MAX_TOOLS = 30` 且**按顺序**截断；DSH 的工具表是字母序，前 30 个恰好
+  全是 `ego_*` 浏览器工具，被丢掉的正是 `read` / `write` / `grep` / `glob` /
+  `todo_write` / `web_search` / `subagent` / `present` …，而 system prompt 里
+  仍然写着这些工具。模型于是调用"没声明"的工具、或者干脆长时间只出推理不出
+  工具调用（实测一次卡住的 step：9727 字符推理、116 秒、无工具调用，最后被用户
+  中止）。**实测上游接受 60 个工具（HTTP 200）**，所以默认上限提到 64，可用
+  `--max-tools` 调整，真发生截断时会把被丢掉的工具名写进日志（不再静默）。
+- **[插件] 探测抖动被当成掉登录（胶囊假红）**。状态胶囊的判定是
+  `status.authenticated && status.proxyUp`，而 `proxyUp` 来自一次
+  **2 秒硬超时、只试一次** 的 `/health` 探测 —— 本机任何一次短暂卡顿都会让
+  胶囊直接显示 `WorkBuddy · 未登录`，哪怕会话文件完全有效。现改为：
+  每次探测 8 秒、失败重试 1 次、**连续 2 次失败**才报告 `proxyUp: false`
+  （连接被拒绝时立即判定，因为那确实说明代理没了）；`/status` 与诊断面板
+  额外返回 `lastProbeError` / `consecutiveProbeFailures` / `degraded`。
+- **[插件] 胶囊只有两态，把"代理没响应"也说成"未登录"**。现在三态：绿=已登录、
+  黄=`代理未响应`（登录态仍有效，不提示点登录，避免多占一次上游）、
+  红=`未登录`（只有会话真的无效时才出现）。
+- **[插件] 中止任务后上游仍在生成，WorkBuddy 账号被继续占用**。适配器现在监听调用方
+  的中止信号，用户一按停止就立刻 abort 上游请求（不再依赖 finally 的时机）；
+  本地代理侧也新增客户端断开轮询与 `client_disconnected` 记录作为兜底。
+- **[本地代理] 请求路径上的同步设备流登录会冻住整个代理**。代理原来在每个 chat 请求里
+  同步调用 `ensure_authenticated()`，一旦判定 token 过期且刷新失败，就会在
+  async handler 里跑 `login()`（内部 `time.sleep` 轮询、最多 300 秒），把
+  uvicorn 单事件循环彻底冻住：所有工作区的模型请求一起卡死，`/health` 也
+  不响应，于是胶囊同时显示"未登录"。现改为：认证检查/刷新放到
+  `asyncio.to_thread` 里执行并加锁（refresh token 是轮换式的，并发刷新会
+  互相作废），请求路径**绝不允许**触发交互式登录 —— 刷新失败就快速返回
+  401 `auth_error`，交互式登录仍走 `POST /api/workbuddy/login`。
+- **[本地代理] 手动启动与 launchd 抢 8787**。`start-workbuddy.sh` 增加端口占用护栏：
+  手动执行时发现端口已占用就直接退出；launchd 用 `--wait` 驻留等待旧进程退出
+  后再接管（配套 plist 加 `--wait` 与 `ThrottleInterval`），不再刷
+  `address already in use`。
+
+### Verified (not a bug)
+- **DSH 的 system prompt 不会被压缩/裁剪**。代理的 `--desensitize` +
+  `compact_harness` 只针对 Codex CLI / Claude Code 的模板（`Codex CLI`、
+  `# How you work`、`<permissions instructions>` 等标记），实测拿 DSH 真实的
+  6874 字符 system prompt 跑一遍：只多了 15 个零宽空格（敏感词表命中），
+  长度与内容不变。所以"数据压缩把上下文搞坏"不成立。
+
+
 ## [0.1.17] - 2026-09-11
 
 修复社区反馈的两个 issue（[#3](https://github.com/zdk119746/dsh-llm-workbuddy/issues/3)、
@@ -149,6 +220,7 @@
 ---
 
 <!-- 历史版本锚点（便于生成 Release 时对比区间） -->
+[0.1.18]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.17...v0.1.18
 [0.1.16]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/zdk119746/dsh-llm-workbuddy/compare/v0.1.13...v0.1.14

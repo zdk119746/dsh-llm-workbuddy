@@ -367,7 +367,8 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 |---|---|
 | 右下角没有胶囊 | `dsh web` 没重启加载新 bundle → 重启 `dsh web`；或 `curl /plugins/dsh-llm-workbuddy/client.js` 应返回 200 |
 | 胶囊一直 `…`（加载中） | `GET /api/workbuddy/status` 失败 → 确认 `dsh web` 在跑、端口正确 |
-| 胶囊红 + `代理未运行` | workbuddy2api 代理没起或挂了 → 按「安装代理」章节启动 |
+| 胶囊红 + `代理未运行` | workbuddy2api 代理没起或挂了 → 按「安装代理」章节启动（新版胶囊对"代理未响应"显示黄色，不再报成"未登录"） |
+| **另一个 workspace 在跑任务时胶囊显示「未登录」，结束任务后过一会儿又恢复** | 这是**误报**，不是掉登录。整台机器只有一个代理进程（`127.0.0.1:8787`）和一份会话（`.workbuddy/session.json`），所有 workspace 共用：一边在长任务里占用模型时，`/health` 探测可能短暂失败，旧版胶囊会直接把"探测失败"画成"未登录"。新版：探测 8 秒 + 重试 + 连续两次失败才算掉线，并且显示为黄色「代理未响应」；`GET /api/workbuddy/status` 会带 `lastProbeError` / `consecutiveProbeFailures` 说明真实原因。要并行跑两个 workspace 的 WorkBuddy 任务，需要**第二份会话 + 第二个代理端口 + 第二个 profile**（`baseURL`/`sessionFile` 是 profile 级配置，同一个 profile 里改不隔离） |
 | 胶囊显示登录成功但模型用不了 | 典型的"代理进程活着但指向旧路径/文件缺失"假象（`/health` 仍显示 ok）。点胶囊 **🔍 诊断**，看 `模型出字` 是否失败；按面板给出的重启命令重启代理 |
 | 点「登录」没反应 / 按钮灰 | `loginScriptAvailable:false` → 包内 `login_workbuddy.py` 缺失或系统无 `python3`；检查安装。若返回了 `error`（脚本 15 秒内没打印授权链接、或退出码非 0），页面会弹出具体原因 |
 | 点「登录」弹出 `alreadyLoggedIn`，但 token 实际已失效 | 本地判定是启发式（会话文件可能没有 `expiresAt`）→ 用 **⚙️ → 🔑 重新登录** 强制重跑登录 |
@@ -378,6 +379,11 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 | 代理版本报错 / 登录最后一步 401 | 代理过旧（< 2.0.4，缺 `X-Product-Code`、`_enterprise_headers` 等）→ `uv tool install -U workbuddy2api` 升级到 >= 2.0.4 |
 | 启动 `dsh web` 报 `EPERM ... cordis.yml` | `.dsh` 所在系统卷受保护（`/System/Volumes/Data` 带 `protect`）。解决：`sudo chown -R $(whoami) /Users/jiyunyang/.dsh`，或 `export DSH_HOME=$HOME/dsh-home` 后重新 `dsh plugin --profile web add` 并把插件链接进新 home |
 | 模型请求 `TRANSPORT` 错误 | 代理未运行或端口不对（连接被拒绝） |
+| **任务跑着跑着就死了 / 之后怎么重试都起不来** | 上游 `429 / 400 / 5xx` 以前被代理包成 `200 + SSE error 帧` 且不补 `[DONE]`，客户端只看到 `STREAM_CLOSED`（不在 harness 重试策略里）→ 任务当场终结。新版会翻成 `QUOTA` / `RATE_LIMIT` / `INVALID_REQUEST` / `SERVER` 并带上游原文（如"您的使用量已超出频率限制，将在 … 重置"）。若报 `QUOTA`：等重置或换模型 |
+| 报错 `WorkBuddy SSE stream ended without [DONE]` | 旧版代理的同一个问题（现在只会在"已经输出了一部分内容后连接被切断"时出现，这是真实的截断，应当重试整个请求） |
+| 模型长时间只推理、不调用工具，像是卡住 | 检查代理日志里有没有 `tools_truncated`：旧版把 DSH 的 60 个工具按顺序砍到 30 个（`read`/`write`/`grep`/`web_search` 等全被丢掉，system prompt 里却还写着）。实测上游接受 60 个，默认上限已提到 64；也可用 `--max-tools N` 调整 |
+| 中止任务后 WorkBuddy 要过一会儿才恢复 | 中止后上游请求可能仍在生成，账号一直被占着 → 适配器现在监听中止信号、立刻 abort 上游请求；代理也会记录 `client_disconnected` |
+| 模型请求立刻返回 401 `auth_error`（以前是长时间无响应后所有模型一起卡） | 代理不再在请求路径里同步跑交互式登录（那会冻住整个事件循环）；token 刷新失败就快速 401 → **⚙️ → 🔑 重新登录** 后重试 |
 
 ---
 
