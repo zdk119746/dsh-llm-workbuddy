@@ -20,7 +20,7 @@
    显示**推理等级**选择器（Low / Medium / High）。
 2. **Web 登录状态小组件**：在 Web GUI 右下角常驻一个状态胶囊，**实时显示登录/
    代理状态**，未登录时一键在新标签页打开 WorkBuddy 登录页，登录完成后自动变绿。
-   无需再回到终端手动跑登录脚本。
+   无需再回到终端手动跑登录脚本。胶囊**可以拖到页面任意位置**（刷新后回到右下角）。
 
 ---
 
@@ -29,7 +29,7 @@
 ```
 ┌──────────────────────────── DeepSeek Harness Web GUI ───────────────────────────┐
 │                                                                                  │
-│   [ 模型选择器 (WorkBuddy 分组) ]            [ WorkBuddy 状态胶囊 (右下角) ]      │
+│   [ 模型选择器 (WorkBuddy 分组) ]        [ WorkBuddy 状态胶囊 (默认右下角·可拖动) ] │
 │        │                                            │                            │
 │        │ GET /v1/models (代理发现)                  │ GET  /api/workbuddy/status │
 │        ▼                                            │ POST /api/workbuddy/login │
@@ -50,8 +50,10 @@
   HTTP 服务上，通过 Cordis 的 `webServer` 服务注册（用 `ctx.get("webServer")`
   探测，`webServer` 不列入 `inject`），headless profile 下自动跳过。
 - **前端胶囊**（`lib/client.js`）是零依赖的原生浏览器 JS，由 DSH 的 `dsh.client`
-  双端机制在 `window.__DSH_BOOT__` 中注入，serve 于
-  `/plugins/dsh-llm-workbuddy/client.js`。
+  双端机制注入（client-modules 的 `/plugins/??…/client.js` combo 路由下发）。
+  宿主每 500ms 轮询 bundle 元数据，文件一改就推送 `rebuilt` 帧，浏览器端
+  `client-hmr` 会**热重载本插件并重新 `apply()`**——所以改完 `lib/client.js`
+  不用重启 `dsh web`，页面上的胶囊会自己换新（靠 `ctx.effect` 的卸载函数清干净）。
 - **登录脚本**（`login_workbuddy.py`，仓库根）实现与官方 CodeBuddy 插件一致的
   device flow（`platform=CLI` + codebuddy.cn 请求头）。
 
@@ -242,7 +244,7 @@ Web 登录后终端脚本也读得到同一份会话。
 |---|---|
 | `GET /api/workbuddy/status` | 读取会话文件（默认 `~/.codebuddy-session.json`，或配置的 `sessionFile`），**多源推导**会话过期时间（`expiresAt` → refreshToken/accessToken 的 JWT `exp` → `expiresIn`+mtime）判断会话是否有效，并 `fetch` 代理 `/health` 判断 `proxyUp`；返回 `{ sessionFile, authenticated, expiresAt, expiresAtSource, expiryKnown, expired, tokenPresent, reloginRecommended, account, proxyUp, tokenValid, loginScriptAvailable, checkin: { supported, autoEnabled, handledToday, lastResult } }`；非 GET 返回 405 |
 | `POST /api/workbuddy/login` | 已有有效会话且未指定 `?force=1` 时直接返回 `alreadyLoggedIn`；否则用系统 `python3` `spawn` 包内 `login_workbuddy.py --session-file <sessionFile>`，等它打印出设备流链接后返回 `{ authUrl, pending:true }`（最长等 15 秒，超时/脚本早退返回 `{ error }`）；设备流在后台继续，前端轮询 status 感知完成。`?force=1` 强制重跑登录（见「🔑 重新登录」）；非 POST 返回 405 |
-| `POST /api/workbuddy/diagnose` | **一键诊断**：真实探测健康状态，返回 `{ ok, session, health, chat, loginScriptAvailable, restartCommand }`。与 `/status` 不同，它除了探 `/health`，还会**真实发一次最小模型请求**（`chat.chatWorking`），能戳穿"胶囊显示成功但模型全 500"的假象；`session` 里带 `expiresAtSource` / `expiryKnown` / `reloginRecommended`；`ok:false` 时附带 `restartCommand`（自动区分本地 monorepo 布局与标准安装）；非 POST 返回 405 |
+| `POST /api/workbuddy/diagnose` | **一键诊断**：真实探测健康状态，返回 `{ ok, session, health, chat, loginScriptAvailable, restartCommand, terminalCommand }`。与 `/status` 不同，它除了探 `/health`，还会**真实发一次最小模型请求**（`chat.chatWorking`），能戳穿"胶囊显示成功但模型全 500"的假象；`session` 里带 `expiresAtSource` / `expiryKnown` / `reloginRecommended`；`ok:false` 时附带两份重启命令——`restartCommand`（多行、带注释，给人看/复制）与 `terminalCommand`（**单行、无注释、无续行**，供面板的「▶ 在终端执行」直接敲进内置终端）；两者由同一份定义生成，自动区分本地 monorepo 布局与标准安装；非 POST 返回 405 |
 | `GET /api/workbuddy/usage` | **用量统计**：读取本地 token 用量台账（`$DSH_HOME/llm-workbuddy/usage.jsonl`），返回 `{ today, byModel, total }`（今日/按模型/累计的 input/output tokens、请求次数，以及**积分消耗 `credit`**）；非 GET 返回 405 |
 | `GET /api/workbuddy/checkin` | **签到状态**：返回 `{ supported, handledToday, lastResult, official }`；`supported` 为三态——`true`（代理有签到接口）/ `false`（探测到 404/405，代理未实现）/ `null`（尚未探测出结论）。探测结果缓存 30 分钟；非 GET/POST 返回 405 |
 | `POST /api/workbuddy/checkin` | **立即签到**：透传代理 `/v1/checkin`（幂等，官方对已签到返回业务拒绝）。代理未实现签到接口时返回 `{ ok:false, supported:false, message }` 且**不写入任何失败记录** |
@@ -256,7 +258,12 @@ Web 登录后终端脚本也读得到同一份会话。
 ### 前端胶囊（`lib/client.js`）
 
 - 作为经典 `<script>` 被 DSH 注入页面，IIFE 内直接操作 DOM，**零依赖**。
-- 启动时在 `document.body` 末尾挂一个 `position:fixed` 的胶囊（右下角）。
+- 启动时在 `document.body` 末尾挂一个 `position:fixed` 的胶囊，**默认停在右下角**
+  （CSS 的 `right/bottom`）。
+- **可拖动**：按住胶囊主体（**按钮除外**，按钮是点击目标）拖到任意位置，浮层会跟着
+  胶囊走并自动夹在视口内；缩窗口也会被拉回来。移动不足 4px 仍按点击处理，不会把手抖
+  变成拖动。位置**刻意不持久化**（不写 `localStorage`）——**刷新页面即回到右下角**，
+  这是需求而不是遗漏。
 - 每 **5 秒** `GET /api/workbuddy/status`；点「登录」后加快到每 **2 秒**轮询、
   最多 30 次，直到 `authenticated:true`。
 - 胶囊外面只显示一个 **⚙️ 设置** 按钮（带 title「WorkBuddy 设置」）。点击展开菜单，
@@ -269,15 +276,27 @@ Web 登录后终端脚本也读得到同一份会话。
   会话判定（详见「登录态判定」）。
 - **🔍 诊断**：点它 `POST /api/workbuddy/diagnose`，弹出一个面板
   显示**真实健康状态**（登录、会话文件、代理进程、登录令牌、模型能否出字），
-  发现问题时附带**可复制的重启命令**（一键复制到终端执行）。
+  发现问题时给出两份重启命令：
+  - **复制重启命令**：把多行（含注释）的 `restartCommand` 放进剪贴板；
+  - **▶ 在终端执行**（DSH >= 0.1.7 的内置终端）：调 `ctx.get("sidebarRight")` /
+    `ctx.get("webTerminals")` 开一个右侧栏终端标签页，**等它连上并拿到输入控制权**
+    后，把单行的 `terminalCommand` 敲进去并回车。终端命令会先把 8787 上的旧代理
+    停掉再重启；标准安装布局下**不会**顺手跑 `uv tool install -U`（升级是有意留给人
+    手动做的一步）。界面里没有终端插件时按钮不退化成死路：提示原因并把命令复制到
+    剪贴板。
 - **📊 用量**：点它 `GET /api/workbuddy/usage`，弹出一个面板
   显示**今日/累计 token 用量**、**积分消耗**（上游每次返回的 `credit` 累加）与
   **按模型明细**（数据来自本地台账 `$DSH_HOME/llm-workbuddy/usage.jsonl`）。
   注：代理不暴露余额/剩余积分接口，只能统计**已消耗**积分，无法显示账户剩余。
-- 诊断 / 用量浮层**右上角都有 ✕ 关闭按钮**，也可点击浮层外区域或按 Esc 关闭。
-- 状态映射：
+- 诊断 / 用量浮层**右上角都有 ✕ 关闭按钮**，也可点击浮层外区域或按 Esc 关闭；
+  浮层默认贴在胶囊上方（上方放不下就放到下方）。
+- 挂载/卸载都登记在 `ctx.effect` 上：客户端热重载会卸掉旧胶囊（含轮询定时器、
+  全局监听、打开的浮层），不会叠出第二个。
+- 状态映射（三态，避免把"探测失败"误报成"掉登录"）：
   - `authenticated && proxyUp` → 🟢 绿，显示 `WorkBuddy · <昵称>`
-  - 否则 → 🔴 红，显示「登录」按钮；`proxyUp` 为 false 时额外提示 `代理未运行`
+  - `authenticated && !proxyUp` → 🟡 黄，显示「代理未响应」（登录态仍有效，
+    不提示点登录，避免白占一次上游）
+  - `!authenticated` → 🔴 红，显示「登录」按钮
 
 > **关于 UI 挂载位置（临时做法说明）**
 >
@@ -365,7 +384,8 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 
 | 现象 | 可能原因 / 解决 |
 |---|---|
-| 右下角没有胶囊 | `dsh web` 没重启加载新 bundle → 重启 `dsh web`；或 `curl /plugins/dsh-llm-workbuddy/client.js` 应返回 200 |
+| 右下角没有胶囊（也没有黄色/红色胶囊） | 先刷新页面；宿主每 500ms 轮询 bundle，改动会经 `/plugins/events` 热重载。若刷新后仍没有，看浏览器控制台是否有 `client-modules` 报错，并确认插件在 profile 的 bundles 里 |
+| 点「▶ 在终端执行」提示"当前界面没有内置终端" | 这个界面没装/没启用官方终端插件（`@deepseek-ai/dsh-client-ui-sidebar-terminal` + `dsh-api-terminal-controller`），或当前没选中任何会话。命令已自动复制到剪贴板，可手动粘贴执行 |
 | 胶囊一直 `…`（加载中） | `GET /api/workbuddy/status` 失败 → 确认 `dsh web` 在跑、端口正确 |
 | 胶囊红 + `代理未运行` | workbuddy2api 代理没起或挂了 → 按「安装代理」章节启动（新版胶囊对"代理未响应"显示黄色，不再报成"未登录"） |
 | **另一个 workspace 在跑任务时胶囊显示「未登录」，结束任务后过一会儿又恢复** | 这是**误报**，不是掉登录。整台机器只有一个代理进程（`127.0.0.1:8787`）和一份会话（`.workbuddy/session.json`），所有 workspace 共用：一边在长任务里占用模型时，`/health` 探测可能短暂失败，旧版胶囊会直接把"探测失败"画成"未登录"。新版：探测 8 秒 + 重试 + 连续两次失败才算掉线，并且显示为黄色「代理未响应」；`GET /api/workbuddy/status` 会带 `lastProbeError` / `consecutiveProbeFailures` 说明真实原因。要并行跑两个 workspace 的 WorkBuddy 任务，需要**第二份会话 + 第二个代理端口 + 第二个 profile**（`baseURL`/`sessionFile` 是 profile 级配置，同一个 profile 里改不隔离） |
@@ -413,7 +433,7 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 | 路径 | 作用 |
 |---|---|
 | `lib/index.js` | Cordis 插件主体：LLM 适配器 `WorkBuddyAdapter` + `/api/workbuddy/*` 路由（status / login / **diagnose**） |
-| `lib/client.js` | 零依赖浏览器小部件（状态胶囊 + 登录流程 + **🔍 诊断**），被 `dsh.client` 注入 |
+| `lib/client.js` | 零依赖浏览器小部件（**可拖动**状态胶囊 + 登录流程 + **🔍 诊断**（含**在终端执行**）/ 📊 用量），被 `dsh.client` 注入 |
 | `login_workbuddy.py` | 设备流登录脚本（随包发布，被后端路由用系统 `python3` spawn） |
 | `cordis.patch.yml` | 本包的 Cordis bundle 挂载声明（`id: llm-workbuddy`） |
 | `package.json` | 包元数据、`dsh.client` 浏览器入口声明、`llm-workbuddy` peer 依赖 |
