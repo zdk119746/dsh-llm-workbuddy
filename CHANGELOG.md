@@ -4,6 +4,71 @@
 每次发版请同步 `package.json` 的 `version` 并打一个 `git tag`（如 `v0.1.13`），
 在 GitHub 创建 Release 时本文件即为更新说明来源。
 
+## [0.1.21] - 2026-09-29
+
+修复"回答卡在半句话上 / 一直等 / 没报错就突然结束"。
+
+**重要更正**：这条 DSML 扣留正文的 bug，**上游代理已经在 `2.0.4` 修掉了**
+（commit "修复 DSML 流式缓冲器吞掉含 '<' 的残留内容导致输出截断"，2026-08-22 合入
+`hawklithm/workbuddy2api`，PyPI 目前 2.0.6）。踩到它的机器是**从源码启动的旧
+checkout**（本地 `.workbuddy-src` 停在 `57f6b03`，恰好是该修复的**父提交**），
+而按 README 用 PyPI `>= 2.0.4` 的用户本来就没这个问题。
+
+所以本版本的定位是：**把"代理版本"这件事变得可检测、可执行**，并顺手修掉一个上游
+还没修、插件侧能独立修的问题（中途断流被整轮静默重试）。DSML 那条修复在插件里是
+**修不了的**——它必须由代理提供。
+
+### 根因（一句话）
+
+代理的 DSML 流式缓冲器收尾判断是 `if '<' in self.buffer: return "", None`：缓冲区
+里只要出现过**任意一个 `<`** 就永久拒绝输出。`<` 在正常正文里极常见——
+Kotlin/Java 泛型 `BaseMapper<User>`、`List<String>`、HTML 标签、`a < b` 都算。
+于是从那个字符起，代理**再也不向客户端输出正文**（chunk 照发，`content` 全是空串），
+流正常收尾时把扣留的正文直接丢掉。实测（server 工作区）：
+
+- step 5：客户端只收到 401 字、结尾停在 `interface UserMapper : BaseMapper`，
+  之后 **313.1 秒零可见输出**，直到用户手动中止；
+- step 4：同样在 178 字后静默 **205.5 秒**，随后上游 `ReadError`，整轮被重写。
+
+`<` 恰好出现在 Kotlin/Java/Spring 场景里，所以"server 工作区"感觉最明显；
+WorkBuddy 官方客户端直连上游、没有这层改写，所以同一个模型在里面完全正常。
+
+### Fixed
+
+- **插件侧（本版本真正新增的修复）：中途断流不再整轮静默重试**。已经流出内容之后
+  才断的流（代理 502 `transport_error`、空闲超时等）以前落在 harness 的默认可重试
+  集合（`EMPTY_RESPONSE|RATE_LIMIT|SERVER|TIMEOUT|TRANSPORT`）里，会**重跑整轮生成
+  并丢掉用户已经看到的内容**。现在报不可重试的 `STREAM_TRUNCATED`，保留已显示内容
+  并明确告知"回答被截断"，由用户决定继续还是重发。一个字节都没拿到时的
+  `EMPTY_RESPONSE` 重试行为不变。
+- **升级要求写清楚并尽量可检测**：README 的"代理 >= 2.0.4"从"登录 headers 需要"
+  升级为**硬性内容要求**（2.0.4 同时修掉了正文截断），建议直接 `>= 2.0.6`。
+
+### Added
+
+- **代理能力探测**：`/health` 若提供 `version` / `features`，插件据此判断代理是否
+  过旧，胶囊显示黄色**「代理过旧」**、🔍 一键诊断给出升级命令。判定规则：
+  `features` 里缺 `dsml-holdback-fixed` → 过旧；只报 `version` 时 < `2.0.4` → 过旧；
+  **两者都没有（上游 2.0.4~2.0.6 就是这样）→ 保持沉默**，不误报。
+  `/api/workbuddy/status` 与 `/api/workbuddy/diagnose` 新增 `proxyVersion` /
+  `proxyFeatures` / `proxyOutdated` / `proxyMissingFeatures` / `proxyOutdatedReason` /
+  `proxyUpgradeCommand` / `proxyVersionKnown` 字段。
+- **（本地源码分支，不属于本 npm 包）** 给自建代理补了两处上游尚缺的东西：`/health`
+  返回 `version` + `features`；空闲/总时长超时改用真实计时器（`asyncio.wait_for`），
+  不再"下一行到达时才判定"。
+
+### 发布检查（维护者）
+
+1. **用户侧什么都不用做**：只要代理是 PyPI `>= 2.0.4`（当前 2.0.6），正文截断的
+   根因已经没了。本插件版本只是让"版本不够"这件事**可见**，并把截断的中途断流
+   变成不再自动重试。
+2. 想让"代理过旧"在**所有**用户机器上都能自动识别，需要上游 `/health` 暴露
+   `version`（或 `features`）——这是可选的增强，可以提 PR；在它落地前，插件对
+   没有这两个字段的代理保持沉默，靠 README + 升级命令提示。
+3. 若继续用**本地源码**方式启动代理：不要再停在 `57f6b03`，`git pull` 到
+   `>= 2.0.4` 的提交（当前 main = 2.0.6）；本地那两处补丁（DSML 扣留、flush 补发）
+   与上游重复，应丢弃后只保留 `/health` 能力位与空闲计时器两处，避免与上游冲突。
+
 ## [0.1.20] - 2026-09-28
 
 这个版本里有一次**必须升级的修复**，外加两个新功能。

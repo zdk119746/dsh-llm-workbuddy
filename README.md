@@ -70,6 +70,17 @@
      企业认证头（`_enterprise_headers` / `X-Domain`），登录会在最后一步 401；
    - **2.0.4 已包含该修复**（"修复登录账户轮询与企业认证 headers 传递"），
      登录成功；GitHub `main` 当前与 2.0.4 内容一致，两者皆可。
+   - **2.0.4 同时修掉了"回答卡在半句话 / 被静默截断"**（commit
+     "修复 DSML 流式缓冲器吞掉含 '<' 的残留内容导致输出截断"）：2.0.3 及更早的
+     代理，只要正文里出现裸 `<`（Kotlin/Java 泛型 `BaseMapper<User>`、HTML、
+     `a < b`），从那个字符起的**全部正文会被永久扣留**——界面卡在半句话上，
+     流结束时那一整段被丢弃。**PyPI 当前是 2.0.6，建议直接 `>= 2.0.6`。**
+   - ⚠️ **从源码启动的要注意**：`git clone` 后停在旧 commit（例如 `57f6b03`，
+     它正是上述修复的父提交）再 `uv run python -m codebuddy_proxy`，拿到的仍是
+     有 bug 的版本。用源码方式请 `git pull` 到 `>= 2.0.4` 的提交。
+   - 代理 `/health` 若返回 `version` / `features`，插件会据此判断并在胶囊上显示
+     **「代理过旧」** + 升级命令；上游 2.0.4~2.0.6 不返回这两个字段，此时插件
+     无法远程判断，只能按本节的版本要求自行确认。
 3. 登录使用**插件内置的 `login_workbuddy.py`**（本包自带，依赖系统 `python3`，
    纯标准库，Python 3.7+ 即可），**不需要**代理自带的 `--login`（VSCode platform
    会 401）。
@@ -400,7 +411,10 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 | 启动 `dsh web` 报 `EPERM ... cordis.yml` | `.dsh` 所在系统卷受保护（`/System/Volumes/Data` 带 `protect`）。解决：`sudo chown -R $(whoami) /Users/jiyunyang/.dsh`，或 `export DSH_HOME=$HOME/dsh-home` 后重新 `dsh plugin --profile web add` 并把插件链接进新 home |
 | 模型请求 `TRANSPORT` 错误 | 代理未运行或端口不对（连接被拒绝） |
 | **任务跑着跑着就死了 / 之后怎么重试都起不来** | 上游 `429 / 400 / 5xx` 以前被代理包成 `200 + SSE error 帧` 且不补 `[DONE]`，客户端只看到 `STREAM_CLOSED`（不在 harness 重试策略里）→ 任务当场终结。新版会翻成 `QUOTA` / `RATE_LIMIT` / `INVALID_REQUEST` / `SERVER` 并带上游原文（如"您的使用量已超出频率限制，将在 … 重置"）。若报 `QUOTA`：等重置或换模型 |
-| 报错 `WorkBuddy SSE stream ended without [DONE]` | 旧版代理的同一个问题（现在只会在"已经输出了一部分内容后连接被切断"时出现，这是真实的截断，应当重试整个请求） |
+| 报错 `WorkBuddy SSE stream ended without [DONE]` | 旧版代理的同一个问题。现在只在**一个字节内容都没拿到**时出现（`EMPTY_RESPONSE`，可重试）；已经出过内容才断的流会报 `STREAM_TRUNCATED`（**不自动重试**，见下一行） |
+| 报错 `STREAM_TRUNCATED` / 回答写到一半突然停 | 上游在已经流出内容之后把连接切了（代理日志 `stream_error` / `ReadError`）。旧行为是**整轮静默重试**：用户看到的回答会消失、从头重写一遍（实测一次已流出 178 字的生成被整轮丢弃）。现在改成不可重试的截断错误，保留已显示内容并明确告知"被截断"，由你决定继续还是重发 |
+| **回答卡在半句话上不动 / 一直等，最后只能中止** | **代理 < `2.0.4`**（最典型：`git clone` 后停在旧 commit、用本地源码 `uv run python -m codebuddy_proxy` 启动）：正文里一旦出现裸 `<`（`BaseMapper<User>`、`List<String>`、HTML、`a < b`），代理从那个字符起就**不再向外输出**任何正文（chunk 还在发，只是 `content` 全是空串），所以你看到的是"光标一直转、字不再增加"。**2.0.4 已修**（PyPI 当前 2.0.6）→ `uv tool install -U workbuddy2api`，或源码方式 `git pull`，然后重启代理。代理 `/health` 报 `version`/`features` 时胶囊会直接显示黄色**「代理过旧」**并给出升级命令 |
+| 任务没有报错，但回答就是**停在半句**结束了 | 同上（代理旧版的另一种表现：流正常收尾，代理把缓冲里扣留的正文丢弃，`finish=stop` 被当成完整回答）。升级代理 `>= 2.0.4` |
 | 模型长时间只推理、不调用工具，像是卡住 | 检查代理日志里有没有 `tools_truncated`：旧版把 DSH 的 60 个工具按顺序砍到 30 个（`read`/`write`/`grep`/`web_search` 等全被丢掉，system prompt 里却还写着）。实测上游接受 60 个，默认上限已提到 64；也可用 `--max-tools N` 调整 |
 | 中止任务后 WorkBuddy 要过一会儿才恢复 | 中止后上游请求可能仍在生成，账号一直被占着 → 适配器现在监听中止信号、立刻 abort 上游请求；代理也会记录 `client_disconnected` |
 | 模型请求立刻返回 401 `auth_error`（以前是长时间无响应后所有模型一起卡） | 代理不再在请求路径里同步跑交互式登录（那会冻住整个事件循环）；token 刷新失败就快速 401 → **⚙️ → 🔑 重新登录** 后重试 |
