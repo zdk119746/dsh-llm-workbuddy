@@ -4,6 +4,9 @@
   "description": "WorkBuddy (via the local workbuddy2api proxy) LLM provider adapter for DeepSeek Harness, with a Web login-status widget",
   "type": "module",
   "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test"
+  },
   "license": "MIT",
   "author": "dengkun.zhang",
   "keywords": [
