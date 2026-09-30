@@ -215,7 +215,7 @@ cd /path/to/dsh-workbuddy
 
 ```sh
 curl http://127.0.0.1:8787/health    # {"status":"ok","authenticated":true,...}
-curl http://127.0.0.1:8787/v1/models # 模型列表（含 glm-5.2 / deepseek-v4-pro ...）
+curl http://127.0.0.1:8787/v1/models # 模型列表（含 glm-5.3-flash / glm-5.2 / deepseek-v4-pro ...）
 ```
 
 > ⚠️ `/health` 只证明**代理进程活着**，不能证明模型能真正出字（代理进程指向旧
@@ -300,7 +300,7 @@ Web 登录后终端脚本也读得到同一份会话。
 | `GET /api/workbuddy/status` | 读取会话文件（默认 `~/.codebuddy-session.json`，或配置的 `sessionFile`），**多源推导**会话过期时间（`expiresAt` → refreshToken/accessToken 的 JWT `exp` → `expiresIn`+mtime）判断会话是否有效，并 `fetch` 代理 `/health` 判断 `proxyUp`；返回 `{ sessionFile, authenticated, expiresAt, expiresAtSource, expiryKnown, expired, tokenPresent, reloginRecommended, account, proxyUp, tokenValid, loginScriptAvailable, checkin: { supported, autoEnabled, handledToday, lastResult } }`；非 GET 返回 405 |
 | `POST /api/workbuddy/login` | 已有有效会话且未指定 `?force=1` 时直接返回 `alreadyLoggedIn`；否则用系统 `python3` `spawn` 包内 `login_workbuddy.py --session-file <sessionFile>`，等它打印出设备流链接后返回 `{ authUrl, pending:true }`（最长等 15 秒，超时/脚本早退返回 `{ error }`）；设备流在后台继续，前端轮询 status 感知完成。`?force=1` 强制重跑登录（见「🔑 重新登录」）；非 POST 返回 405 |
 | `POST /api/workbuddy/diagnose` | **一键诊断**：真实探测健康状态，返回 `{ ok, session, health, chat, loginScriptAvailable, restartCommand, terminalCommand }`。与 `/status` 不同，它除了探 `/health`，还会**真实发一次最小模型请求**（`chat.chatWorking`），能戳穿"胶囊显示成功但模型全 500"的假象；`session` 里带 `expiresAtSource` / `expiryKnown` / `reloginRecommended`；`ok:false` 时附带两份重启命令——`restartCommand`（多行、带注释，给人看/复制）与 `terminalCommand`（**单行、无注释、无续行**，供面板的「▶ 在终端执行」直接敲进内置终端）；两者由同一份定义生成，自动区分本地 monorepo 布局与标准安装；非 POST 返回 405 |
-| `GET /api/workbuddy/usage` | **用量统计**：读取本地 token 用量台账（`$DSH_HOME/llm-workbuddy/usage.jsonl`），返回 `{ today, byModel, total }`（今日/按模型/累计的 input/output tokens、请求次数，以及**积分消耗 `credit`**）；非 GET 返回 405 |
+| `GET /api/workbuddy/usage` | **用量统计**：读取本地 token 用量台账（`$DSH_HOME/llm-workbuddy/usage.jsonl`），返回 `{ today, byModel, week, total }`：`today` = 今日、`week` = **本周累计**（本地时间**周一 00:00** 起算，含今日）、`byModel` = **本周**按模型明细（与 `week` 同一窗口，逐行相加等于 `week`）、`total` = **全量累计**（保留给兼容与台账自检用，面板不再显示）；每项含 input/output tokens、请求次数，以及**积分消耗 `credit`**；非 GET 返回 405 |
 | `GET /api/workbuddy/checkin` | **签到状态**：返回 `{ supported, handledToday, lastResult, official }`；`supported` 为三态——`true`（代理有签到接口）/ `false`（探测到 404/405，代理未实现）/ `null`（尚未探测出结论）。探测结果缓存 30 分钟；非 GET/POST 返回 405 |
 | `POST /api/workbuddy/checkin` | **立即签到**：透传代理 `/v1/checkin`（幂等，官方对已签到返回业务拒绝）。代理未实现签到接口时返回 `{ ok:false, supported:false, message }` 且**不写入任何失败记录** |
 | `POST /api/workbuddy/refresh-models` | 清空模型发现缓存并重读代理 `/v1/models`，同时发布 `llm/adapters-updated` 让模型选择器立即重载；返回 `{ ok, announced, count, models }` |
@@ -340,12 +340,17 @@ Web 登录后终端脚本也读得到同一份会话。
     手动做的一步）。界面里没有终端插件时按钮不退化成死路：提示原因并把命令复制到
     剪贴板。
 - **📊 用量**：点它 `GET /api/workbuddy/usage`，弹出一个面板
-  显示**今日/累计 token 用量**、**积分消耗**（上游每次返回的 `credit` 累加）与
-  **按模型明细**（数据来自本地台账 `$DSH_HOME/llm-workbuddy/usage.jsonl`）。
+  显示**今日 / 本周累计 token 用量**（本周 = 本地时间**周一 00:00** 起算）、
+  **积分消耗**（上游每次返回的 `credit` 累加）与
+  **本周按模型明细**（数据来自本地台账 `$DSH_HOME/llm-workbuddy/usage.jsonl`）。
   注：代理不暴露余额/剩余积分接口，只能统计**已消耗**积分，无法显示账户剩余。
-  - **台账会轮转，但累计值不会归零**：live 文件超过约 1.5 MB（约 1.2 万次请求）
+  - **口径**：面板只保留「今日」和「本周累计」两档；`byModel` 与 `week` 同一窗口，
+    所以按模型逐行相加正好等于本周累计。跨周后本周数字自然从 0 重新开始，
+    历史记录仍留在台账里（接口的 `total` 字段仍是全量累计）。
+  - **台账会轮转，但本周累计不会归零**：live 文件超过约 1.5 MB（约 1.2 万次请求）
     时，它被原子改名成 `usage.jsonl.1`，下一次请求重新创建 live 文件；用量接口把
-    **归档 + live 一起读**，所以 `total` 是连续的。台账总占用因此稳定在约 3 MB。
+    **归档 + live 一起读**，所以本周数字是连续的（一周内跨轮转不会少算）。台账总占用
+    因此稳定在约 3 MB。
   - **多个 harness 共用一个台账**：Web 版和桌面版都读同一个 `$DSH_HOME`，所以
     用量面板显示的是**两边合计**；每台机器只有一个代理、一个账号，这也是唯一
     有意义的统计口径。写入是 O_APPEND 单行原子追加，轮转走原子改名 + 跨进程锁，
@@ -436,9 +441,23 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 （如个别新模型尚未写入 `product.json`）只显示模型名，不会猜一个数字。
 
 **刷新模型**：⚙️ 设置 → 🔄 刷新模型 会清掉插件的 30s 发现缓存并重新拉取
-代理列表。注意代理自身的模型清单来自本机 WorkBuddy 应用的 `product.json`
-与 `models_config.json`——两者都没有的模型，刷新也不会出现，需先更新应用或
-把模型补进代理配置。
+代理列表。注意代理自身的模型清单来自**代理包内资源**
+`.workbuddy-src/src/codebuddy_proxy/models_config.domestic.json`——不在里面的模型
+刷新也不会出现，需先把条目补进这个文件。
+
+**补一个新模型**（平台先上线、代理快照还没跟上时，如 `glm-5.3-flash`）：
+
+1. 把平台条目补进代理资源 `src/codebuddy_proxy/models_config.domestic.json`
+   （字段照抄同族模型：`id` / `name` / `credits` / `maxInputTokens` /
+   `maxOutputTokens` / `reasoning` / `supportsToolCall` / `supportsImages` / `vendor`）；
+   根目录的 `models_config.json` 是它的开发兼容副本，**必须字节一致**
+   （`test_backend_profiles.py::test_root_model_config_matches_packaged_domestic_resource`
+   守着这一点）。代理**每次请求都重新读这个文件**，改完直接生效，不用重启代理。
+2. 插件内置目录 `lib/index.js` 的 `DEFAULT_MODELS` 也补一条同样的模型（代理
+   不可达时兜底），并把 `credits` 一起写上——代理当前的 `/v1/models` 不透出
+   `credits` 字段，倍率显示靠这份目录。
+3. 平台条目可以从 `~/.workbuddy/cache/acc-product-config-v3.json`（WorkBuddy
+   应用的远程产品配置缓存，含平台声明的最新模型、倍率与窗口）里抄，别猜数字。
 
 ---
 
