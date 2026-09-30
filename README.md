@@ -300,7 +300,7 @@ Web 登录后终端脚本也读得到同一份会话。
 | `GET /api/workbuddy/status` | 读取会话文件（默认 `~/.codebuddy-session.json`，或配置的 `sessionFile`），**多源推导**会话过期时间（`expiresAt` → refreshToken/accessToken 的 JWT `exp` → `expiresIn`+mtime）判断会话是否有效，并 `fetch` 代理 `/health` 判断 `proxyUp`；返回 `{ sessionFile, authenticated, expiresAt, expiresAtSource, expiryKnown, expired, tokenPresent, reloginRecommended, account, proxyUp, tokenValid, loginScriptAvailable, checkin: { supported, autoEnabled, handledToday, lastResult } }`；非 GET 返回 405 |
 | `POST /api/workbuddy/login` | 已有有效会话且未指定 `?force=1` 时直接返回 `alreadyLoggedIn`；否则用系统 `python3` `spawn` 包内 `login_workbuddy.py --session-file <sessionFile>`，等它打印出设备流链接后返回 `{ authUrl, pending:true }`（最长等 15 秒，超时/脚本早退返回 `{ error }`）；设备流在后台继续，前端轮询 status 感知完成。`?force=1` 强制重跑登录（见「🔑 重新登录」）；非 POST 返回 405 |
 | `POST /api/workbuddy/diagnose` | **一键诊断**：真实探测健康状态，返回 `{ ok, session, health, chat, loginScriptAvailable, restartCommand, terminalCommand }`。与 `/status` 不同，它除了探 `/health`，还会**真实发一次最小模型请求**（`chat.chatWorking`），能戳穿"胶囊显示成功但模型全 500"的假象；`session` 里带 `expiresAtSource` / `expiryKnown` / `reloginRecommended`；`ok:false` 时附带两份重启命令——`restartCommand`（多行、带注释，给人看/复制）与 `terminalCommand`（**单行、无注释、无续行**，供面板的「▶ 在终端执行」直接敲进内置终端）；两者由同一份定义生成，自动区分本地 monorepo 布局与标准安装；非 POST 返回 405 |
-| `GET /api/workbuddy/usage` | **用量统计**：读取本地 token 用量台账（`$DSH_HOME/llm-workbuddy/usage.jsonl`），返回 `{ today, byModel, week, total }`：`today` = 今日、`week` = **本周累计**（本地时间**周一 00:00** 起算，含今日）、`byModel` = **本周**按模型明细（与 `week` 同一窗口，逐行相加等于 `week`）、`total` = **全量累计**（保留给兼容与台账自检用，面板不再显示）；每项含 input/output tokens、请求次数，以及**积分消耗 `credit`**；非 GET 返回 405 |
+| `GET /api/workbuddy/usage` | **用量统计**：读取本地 token 用量台账（`$DSH_HOME/llm-workbuddy/usage.jsonl`），返回 `{ today, byModel, week, total }`：`today` = 今日、`week` = **累计(本周)**（本地时间**周一 00:00** 起算，含今日）、`byModel` = **本周**按模型明细（与 `week` 同一窗口，逐行相加等于 `week`）、`total` = **全量累计**（保留给兼容与台账自检用，面板不再显示）；每项含 input/output tokens、请求次数，以及**积分消耗 `credit`**；非 GET 返回 405 |
 | `GET /api/workbuddy/checkin` | **签到状态**：返回 `{ supported, handledToday, lastResult, official }`；`supported` 为三态——`true`（代理有签到接口）/ `false`（探测到 404/405，代理未实现）/ `null`（尚未探测出结论）。探测结果缓存 30 分钟；非 GET/POST 返回 405 |
 | `POST /api/workbuddy/checkin` | **立即签到**：透传代理 `/v1/checkin`（幂等，官方对已签到返回业务拒绝）。代理未实现签到接口时返回 `{ ok:false, supported:false, message }` 且**不写入任何失败记录** |
 | `POST /api/workbuddy/refresh-models` | 清空模型发现缓存并重读代理 `/v1/models`，同时发布 `llm/adapters-updated` 让模型选择器立即重载；返回 `{ ok, announced, count, models }` |
@@ -340,14 +340,15 @@ Web 登录后终端脚本也读得到同一份会话。
     手动做的一步）。界面里没有终端插件时按钮不退化成死路：提示原因并把命令复制到
     剪贴板。
 - **📊 用量**：点它 `GET /api/workbuddy/usage`，弹出一个面板
-  显示**今日 / 本周累计 token 用量**（本周 = 本地时间**周一 00:00** 起算）、
+  显示**今日 / 累计(本周) token 用量**（累计(本周) = 本地时间**周一 00:00** 起算）、
   **积分消耗**（上游每次返回的 `credit` 累加）与
-  **本周按模型明细**（数据来自本地台账 `$DSH_HOME/llm-workbuddy/usage.jsonl`）。
+  **按模型明细(本周)**（数据来自本地台账 `$DSH_HOME/llm-workbuddy/usage.jsonl`）。
   注：代理不暴露余额/剩余积分接口，只能统计**已消耗**积分，无法显示账户剩余。
-  - **口径**：面板只保留「今日」和「本周累计」两档；`byModel` 与 `week` 同一窗口，
-    所以按模型逐行相加正好等于本周累计。跨周后本周数字自然从 0 重新开始，
+  - **口径**：面板只保留「今日」和「累计(本周)」两档（文案统一写成 `累计(本周)`）；
+    `byModel` 与 `week` 同一窗口，
+    所以按模型逐行相加正好等于累计(本周)。跨周后本周数字自然从 0 重新开始，
     历史记录仍留在台账里（接口的 `total` 字段仍是全量累计）。
-  - **台账会轮转，但本周累计不会归零**：live 文件超过约 1.5 MB（约 1.2 万次请求）
+  - **台账会轮转，但累计(本周)不会归零**：live 文件超过约 1.5 MB（约 1.2 万次请求）
     时，它被原子改名成 `usage.jsonl.1`，下一次请求重新创建 live 文件；用量接口把
     **归档 + live 一起读**，所以本周数字是连续的（一周内跨轮转不会少算）。台账总占用
     因此稳定在约 3 MB。
@@ -467,6 +468,7 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 |---|---|
 | **安装报"不兼容"，且报的版本号比最新发布版小**（如刚发 0.1.22 却报 `dsh-llm-workbuddy@0.1.20` 不兼容） | DSH 内置的 **pnpm 11 默认 `minimumReleaseAge: 1440`（1 天）**，发布时间不足 24 小时的版本不会被解析，于是被降级到冷却期外的最新版（那是真的不兼容）→ 装的时候写精确版本：`dsh plugin --profile desktop add dsh-llm-workbuddy@0.1.22`，或等满 24 小时，或在该 profile 的 `pnpm-workspace.yaml` 里设 `minimumReleaseAge: 0` |
 | 右下角没有胶囊（也没有黄色/红色胶囊） | 先刷新页面；宿主每 500ms 轮询 bundle，改动会经 `/plugins/events` 热重载。若刷新后仍没有，看浏览器控制台是否有 `client-modules` 报错，并确认插件在 profile 的 bundles 里 |
+| **改了插件代码（`lib/index.js` 或 `lib/client.js`）但界面/接口还是旧的** | 插件是 **`dsh web` 进程启动时加载并缓存**的：宿主半（`/api/workbuddy/*` 的字段）与客户端 bundle（浏览器拿的 `/plugins/??dsh-llm-workbuddy/client.js&rev=…`）都不会因为改文件而更新。实测编辑 + `touch` 之后 `/plugins/events` 里该插件的 `rev` 不变，**只刷新浏览器没用**，要**重启 `dsh web`**。确认是否真的换了：`curl -s http://127.0.0.1:<端口>/api/workbuddy/usage` 看有没有新字段（如 `week`），以及 `curl -sN http://127.0.0.1:<端口>/plugins/events` 里该插件的 `rev` 是否变了 |
 | 点「▶ 在终端执行」提示"当前界面没有内置终端" | 这个界面没装/没启用官方终端插件（`@deepseek-ai/dsh-client-ui-sidebar-terminal` + `dsh-api-terminal-controller`），或当前没选中任何会话。命令已自动复制到剪贴板，可手动粘贴执行 |
 | 胶囊一直 `…`（加载中） | `GET /api/workbuddy/status` 失败 → 确认 `dsh web` 在跑、端口正确 |
 | 胶囊红 + `代理未运行` | workbuddy2api 代理没起或挂了 → 按「安装代理」章节启动（新版胶囊对"代理未响应"显示黄色，不再报成"未登录"） |
