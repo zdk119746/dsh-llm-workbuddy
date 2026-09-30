@@ -126,6 +126,32 @@ dsh plugin --profile web add github:zdk119746/dsh-llm-workbuddy
 > **0.1.22 或更新**即可；`dsh plugin allow-version … --accept-risk` 那条豁免是给
 > 真的不兼容的插件用的，本插件**不需要**。
 
+> **⚠️ 刚发的新版本装不上？那是 pnpm 的发布冷却期，不是插件不兼容。**
+>
+> DSH 桌面端内置 **pnpm 11**，而 pnpm 11 默认开启供应链保护
+> [`minimumReleaseAge`](https://pnpm.io/blog/releases/11.0)：**发布时间不足 1 天
+> （1440 分钟）的版本不会被解析**。所以在你发完新版后的头 24 小时里，裸包名安装
+> 会被静默降级到"冷却期之外的最新版"，然后 DSH 拿那个旧版本去校验 peer，报出
+> `dsh-llm-workbuddy@0.1.20 与 DSH 0.2.0-rc.2 不兼容`——**报的版本号小于你刚发的
+> 版本，就是这个原因**。
+>
+> 三种解法（任选其一）：
+>
+> ```sh
+> # 1) 装的时候写死精确版本，立刻生效（推荐）
+> dsh plugin --profile desktop add dsh-llm-workbuddy@0.1.22
+>
+> # 2) 或者等满 24 小时后再用裸包名
+> dsh plugin --profile desktop add dsh-llm-workbuddy
+>
+> # 3) 或者关掉这个 profile 的冷却期（写入 profile 的 pnpm-workspace.yaml）
+> #    minimumReleaseAge: 0
+> ```
+>
+> 用第 1 种方式时 pnpm 会提示 `Added 1 entry to minimumReleaseAgeExclude in
+> pnpm-workspace.yaml`，这是正常的——它把这次显式指定记成豁免，之后同 profile 里
+> 的裸包名安装也会用上这个版本。
+
 CLI 会把依赖写进 profile 并把 `dsh-llm-workbuddy` 追加到 `dsh.profile.bundles`，
 同时在 `package.json` 的 `dsh.client` 声明里登记浏览器入口（见下文「Web 小部件
 工作原理」）。然后**重启** `dsh web` / 桌面端。
@@ -413,6 +439,7 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 
 | 现象 | 可能原因 / 解决 |
 |---|---|
+| **安装报"不兼容"，且报的版本号比最新发布版小**（如刚发 0.1.22 却报 `dsh-llm-workbuddy@0.1.20` 不兼容） | DSH 内置的 **pnpm 11 默认 `minimumReleaseAge: 1440`（1 天）**，发布时间不足 24 小时的版本不会被解析，于是被降级到冷却期外的最新版（那是真的不兼容）→ 装的时候写精确版本：`dsh plugin --profile desktop add dsh-llm-workbuddy@0.1.22`，或等满 24 小时，或在该 profile 的 `pnpm-workspace.yaml` 里设 `minimumReleaseAge: 0` |
 | 右下角没有胶囊（也没有黄色/红色胶囊） | 先刷新页面；宿主每 500ms 轮询 bundle，改动会经 `/plugins/events` 热重载。若刷新后仍没有，看浏览器控制台是否有 `client-modules` 报错，并确认插件在 profile 的 bundles 里 |
 | 点「▶ 在终端执行」提示"当前界面没有内置终端" | 这个界面没装/没启用官方终端插件（`@deepseek-ai/dsh-client-ui-sidebar-terminal` + `dsh-api-terminal-controller`），或当前没选中任何会话。命令已自动复制到剪贴板，可手动粘贴执行 |
 | 胶囊一直 `…`（加载中） | `GET /api/workbuddy/status` 失败 → 确认 `dsh web` 在跑、端口正确 |
