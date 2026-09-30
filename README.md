@@ -108,9 +108,27 @@ dsh plugin --profile web add ./dsh-llm-workbuddy
 dsh plugin add dsh-llm-workbuddy
 ```
 
+直接从 GitHub 仓库安装（不需要等 npm 发布）：
+
+```sh
+dsh plugin --profile web add github:zdk119746/dsh-llm-workbuddy
+```
+
+> **兼容性**：插件声明的 DSH peer 范围是
+> `@deepseek-ai/dsh-llm` / `dsh-settings` / `dsh-timeout` 的
+> `^0.1.1-rc.2 || ^0.1.5-rc.1 || ^0.2.0-rc.2`，覆盖 **DSH 0.1.1-rc.2 ~ 0.1.7 以及
+> 0.2.0-rc.2（含桌面端）**。
+>
+> DSH 从 0.2.0 起会在安装和启动时用 `semver.satisfies` 校验这组 peer，范围不匹配
+> 就以 `incompatible-version` 拒绝安装（GitHub / tarball 规格是**装完再判**，表现为
+> "pnpm 装好了又被回滚"）。如果你在更早的插件版本（≤ 0.1.21）上看到
+> `installation rejected: … is incompatible with dsh 0.2.0-rc.2`，升级到
+> **0.1.22 或更新**即可；`dsh plugin allow-version … --accept-risk` 那条豁免是给
+> 真的不兼容的插件用的，本插件**不需要**。
+
 CLI 会把依赖写进 profile 并把 `dsh-llm-workbuddy` 追加到 `dsh.profile.bundles`，
 同时在 `package.json` 的 `dsh.client` 声明里登记浏览器入口（见下文「Web 小部件
-工作原理」）。然后**重启** `dsh web`。
+工作原理」）。然后**重启** `dsh web` / 桌面端。
 
 > 本插件**没有构建步骤**：`lib/client.js` 是浏览器原生 JS 直接被 serve；登录脚本
 > `login_workbuddy.py` 已打进包内，用系统 `python3` 运行（纯标准库，无需 uv）。

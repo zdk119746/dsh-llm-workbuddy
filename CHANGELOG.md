@@ -4,6 +4,70 @@
 每次发版请同步 `package.json` 的 `version` 并打一个 `git tag`（如 `v0.1.13`），
 在 GitHub 创建 Release 时本文件即为更新说明来源。
 
+## [0.1.22] - 2026-09-30
+
+适配 **DeepSeek Harness 0.2.0-rc.2（桌面端）**。
+
+### 症状：在 0.2.0 上根本装不上
+
+```
+dsh: installation rejected: Plugin dsh-llm-workbuddy@0.1.21 is incompatible with
+dsh 0.2.0-rc.2: peerDependencies {"@deepseek-ai/dsh-llm":"^0.1.1-rc.2 || ^0.1.5-rc.1",
+"@deepseek-ai/dsh-settings":"…","@deepseek-ai/dsh-timeout":"…"}.
+Running it may cause crashes or data loss.
+```
+
+### 根因
+
+DSH 从 0.2.0 起在安装与启动两条路径上都会校验插件声明的 `@deepseek-ai/dsh*`
+peer 范围（`@deepseek-ai/dsh-app-boot` 的 `evaluatePluginCompatibility`，判定式为
+`semver.satisfies(runtimeVersion, range, { includePrerelease: true })`），不满足就
+以 `incompatible-version` **拒绝安装/拒绝启动**。
+
+本插件当时的范围 `^0.1.1-rc.2 || ^0.1.5-rc.1` 上界是 `<0.2.0`，于是运行时
+`0.2.0-rc.2` 落在范围外 → 被判定不兼容。registry 规格是**装前判**（直接拒绝，不下载），
+而 **GitHub / tarball 规格是装完再判**，所以从 GitHub 安装的表现是"pnpm 装好了、
+随后被回滚"，最容易被误读成网络或插件本身的问题。
+
+### Changed
+
+- `peerDependencies` 里的 `@deepseek-ai/dsh-llm` / `@deepseek-ai/dsh-settings` /
+  `@deepseek-ai/dsh-timeout` 各追加 `|| ^0.2.0-rc.2`，并**保留**原来的
+  `^0.1.1-rc.2 || ^0.1.5-rc.1`——两头的运行时都还在支持范围内，不是"只支持新版"。
+  `@deepseek-ai/cordis`（运行时 4.0.4）与 `@deepseek-ai/schemastery`（3.18.4）
+  的原有范围已覆盖 0.2.0 运行时，未改。
+
+### 为什么只动范围：0.2.0 并没有破坏本插件用到的 API
+
+逐字节比对了 npm 上 `@deepseek-ai/dsh-llm`、`@deepseek-ai/dsh-settings`、
+`@deepseek-ai/dsh-timeout` 的 `0.1.7-rc.2` 与 `0.2.0-rc.2`：**除
+`dsh-llm/lib/typert.host.js` 里多了一条 `user-question-reply` 的类型声明
+（本插件不 import 该文件）外，其余文件完全相同**，版本号之外没有 API 变化。
+
+插件实际依赖的宿主扩展点在 0.2.0 中也逐一确认仍然存在且签名未变：
+
+- `ctx.llm.registerAdapter` / `ctx.llm.registerConfigurableProviders`（`@deepseek-ai/dsh-llm`）；
+- `ctx.inject(["settings"], …)` + `installSettingsSection`（`@deepseek-ai/dsh-settings`）；
+- `webServer.register({ kind, path, handler }) → disposer`（`@deepseek-ai/dsh-host-webserver`）；
+- `package.json` 的 `dsh.bundle.patch` 与 `dsh.client.platform: "web"` 两个声明；
+- 客户端 `window.__ModuleLoader__.load({ id, factory })` 注册契约
+  （`@deepseek-ai/dsh-client-modules`）。
+
+### 验证方式（在真实 0.2.0-rc.2 运行时上实测）
+
+用**桌面端自带的那份运行时**（走
+`…/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/…`，`DSH_HOME` 指向临时目录，
+全程没有碰本机 `~/.dsh`）：
+
+- `dsh plugin --profile compat add <本目录>` → ✅ 通过兼容性校验，bundle 行写入
+  `dsh.profile.bundles`（改之前同一条命令稳定复现上面的 rejected 报错）；
+- 启动该 profile → ✅ 插件加载无任何报错；
+- `GET /api/workbuddy/status` ✅ 返回真实登录态；`GET /api/workbuddy/usage` ✅；
+  `POST /api/workbuddy/refresh-models` ✅ 返回 18 个模型且 `announced:true`
+  （说明适配器注册与 `adapters-updated` 广播都正常）；
+- 浏览器引导清单里出现 `dsh-llm-workbuddy/client.js`，combo 资源请求 200 ✅；
+- 用 `workbuddy/auto` 跑了一轮真实的 headless 生成 ✅ 端到端可用。
+
 ## [0.1.21] - 2026-09-29
 
 修复"回答卡在半句话上 / 一直等 / 没报错就突然结束"。
