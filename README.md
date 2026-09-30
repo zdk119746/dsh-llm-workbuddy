@@ -483,6 +483,7 @@ DSH 的 `dsh.client` 机制只要求 `package.json` 里：
 | 代理版本报错 / 登录最后一步 401 | 代理过旧（< 2.0.4，缺 `X-Product-Code`、`_enterprise_headers` 等）→ `uv tool install -U workbuddy2api` 升级到 >= 2.0.4 |
 | 启动 `dsh web` 报 `EPERM ... cordis.yml` | `.dsh` 所在系统卷受保护（`/System/Volumes/Data` 带 `protect`）。解决：`sudo chown -R $(whoami) /Users/jiyunyang/.dsh`，或 `export DSH_HOME=$HOME/dsh-home` 后重新 `dsh plugin --profile web add` 并把插件链接进新 home |
 | 模型请求 `TRANSPORT` 错误 | 代理未运行或端口不对（连接被拒绝） |
+| 报错 `WorkBuddy could not …`（`UNSUPPORTED_CONTENT`） | **输入问题，不是代理问题**：图片附件的读取/编码失败（附件字节缺失、已被清理，或无法压进路由字节预算）。该错误**不在 harness 的重试策略里**，不会自动重试，也不会把排查方向带偏到代理 —— 去掉那条含图消息、或重新提供图片即可 |
 | **任务跑着跑着就死了 / 之后怎么重试都起不来** | 上游 `429 / 400 / 5xx` 以前被代理包成 `200 + SSE error 帧` 且不补 `[DONE]`，客户端只看到 `STREAM_CLOSED`（不在 harness 重试策略里）→ 任务当场终结。新版会翻成 `QUOTA` / `RATE_LIMIT` / `INVALID_REQUEST` / `SERVER` 并带上游原文（如"您的使用量已超出频率限制，将在 … 重置"）。若报 `QUOTA`：等重置或换模型 |
 | 报错 `WorkBuddy SSE stream ended without [DONE]` | 旧版代理的同一个问题。现在只在**一个字节内容都没拿到**时出现（`EMPTY_RESPONSE`，可重试）；已经出过内容才断的流会报 `STREAM_TRUNCATED`（**不自动重试**，见下一行） |
 | 报错 `STREAM_TRUNCATED` / 回答写到一半突然停 | 上游在已经流出内容之后把连接切了（代理日志 `stream_error` / `ReadError`）。旧行为是**整轮静默重试**：用户看到的回答会消失、从头重写一遍（实测一次已流出 178 字的生成被整轮丢弃）。现在改成不可重试的截断错误，保留已显示内容并明确告知"被截断"，由你决定继续还是重发 |
