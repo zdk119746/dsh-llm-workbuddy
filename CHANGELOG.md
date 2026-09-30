@@ -28,12 +28,20 @@
 ### Notes
 
 - 0.1.24 已经发布到 npm（版本号不可复用），所以这次文案修正走 **0.1.25**。
-- **改完必须重启 `dsh web`**：宿主把插件客户端 bundle 缓存在内存里
-  （浏览器拿的是 `/plugins/??dsh-llm-workbuddy/client.js&rev=…`，rev 由文件元数据
-  算出），宿主侧的 `lib/index.js` 同样只在进程启动时加载。实测：编辑后
-  `/plugins/events` 里该插件的 `rev` 不变、`/api/workbuddy/usage` 也还是旧的
-  字段（没有 `week`），**刷新浏览器没用**；重启 `dsh web` 后两者一起更新。
-  README 排错表补了这条（含"怎么确认 rev/字段真的换了"的检查命令）。
+- **界面加载的是哪个 profile 里的插件**（本次排查结论）：插件在进程启动时整体读入
+  （宿主半 + 客户端 bundle），而每个 harness 只从**自己 profile 的
+  `node_modules/dsh-llm-workbuddy`** 读。本机情况：
+  - web profile（`~/.dsh/profiles/web`）是 `link:` 到本仓库的 → 改完源码
+    **重启 `dsh web`** 即生效；
+  - **桌面 App（`DeepSeek Harness.app`，`cwd` 就是 `~/.dsh/profiles/desktop`，
+    监听 127.0.0.1:19387）走的是 desktop profile，装的是 npm 上的 `0.1.23`**，
+    不读本仓库源码——所以在 App 里点 📊 用量看到的仍是「累计：…」（0.1.23 文案）。
+    要让它生效必须**发版后升级 profile**：
+    `dsh plugin --profile desktop add dsh-llm-workbuddy@0.1.25`，并把 `0.1.25` 加进
+    该 profile 的 `minimumReleaseAgeExclude`（pnpm 11 的 24 小时冷却），然后重启 App。
+  - 排查用：`grep '"version"' ~/.dsh/profiles/<profile>/node_modules/dsh-llm-workbuddy/package.json`
+    看装的是哪版，`lsof -nP -iTCP:<端口> -sTCP:LISTEN` 看监听进程的 `cwd`。README
+    排错表补了这条。
 
 ## [0.1.24] - 2026-09-30
 
